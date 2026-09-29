@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+  <title>Agent Office</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">▦</span> Agent Office</div>
+    <button id="projectBtn" class="chip" title="Proje klasörü">📁 <span id="projectName">Proje seç</span></button>
+    <label class="field">Model
+      <select id="modelSel">
+        <option value="">Varsayılan</option>
+        <option value="claude-opus-5-5">Opus 5.5</option>
+        <option value="claude-sonnet-5-5">Sonnet 5.5</option>
+        <option value="claude-fable-5-1">Fable 5.1</option>
+        <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+      </select>
+    </label>
+    <label class="field">İzinler
+      <select id="permSel">
+        <option value="plan">Salt okuma (plan)</option>
+        <option value="acceptEdits">Dosya düzenleyebilir</option>
+        <option value="auto">Otomatik (auto)</option>
+        <option value="bypassPermissions">Tüm izinler (riskli)</option>
+      </select>
+    </label>
+    <div class="spacer"></div>
+    <span id="costBadge" class="chip ghost" title="Bu projede harcanan toplam">$0.00</span>
+    <button id="pauseBtn" class="btn">⏸ Duraklat</button>
+    <button id="stopAllBtn" class="btn danger">⏹ Hepsini durdur</button>
+    <button id="settingsBtn" class="btn icon" title="Ayarlar">⚙</button>
+  </header>
+
+  <main class="layout">
+    <section class="stage">
+      <div class="canvas-wrap">
+        <canvas id="office"></canvas>
+        <div id="emptyState" class="empty hidden">
+          <h2>Ofis boş 👋</h2>
+          <p>Ekibin çalışacağı proje klasörünü seç. Her rol (PM, Tech Lead, Developer, QA…) o klasörde kendi Claude Code oturumuyla çalışır.</p>
+          <button class="btn primary" id="emptyProjectBtn">📁 Proje klasörü seç</button>
+        </div>
+      </div>
+      <div class="feed">
+        <div class="feed-head">
+          <strong>Ofis kanalı</strong>
+          <div class="seg" id="feedFilter">
+            <button data-f="all" class="on">Tümü</button>
+            <button data-f="me">Bana gelen</button>
+            <button data-f="sel">Seçili ajan</button>
+          </div>
+        </div>
+        <div id="feedList" class="feed-list"></div>
+        <form id="composer" class="composer">
+          <select id="toSel"></select>
+          <textarea id="msgInput" rows="1" placeholder="Ekibe bir hedef ya da mesaj yaz… (Enter gönderir, Shift+Enter yeni satır)"></textarea>
+          <button class="btn primary" type="submit">Gönder</button>
+        </form>
+      </div>
+    </section>
+
+    <aside class="side">
+      <nav class="tabs">
+        <button data-tab="agent" class="on">Ekip</button>
+        <button data-tab="tasks">Görevler <span id="taskCount" class="count"></span></button>
+        <button data-tab="radar">Radar <span id="radarCount" class="count"></span></button>
+      </nav>
+      <div id="tab-agent" class="tab-body"></div>
+      <div id="tab-tasks" class="tab-body hidden"></div>
+      <div id="tab-radar" class="tab-body hidden"></div>
+    </aside>
+  </main>
+
+  <dialog id="settingsDlg">
+    <form method="dialog" id="settingsForm">
+      <h3>Ayarlar</h3>
+      <div class="grid2">
+        <label>Ajan dili <input name="language" placeholder="Turkish"></label>
+        <label>Aynı anda çalışan ajan <input name="maxConcurrent" type="number" min="1" max="7"></label>
+        <label title="Ajanlar arası zincir bu derinliği aşarsa mesajlar onayına bekletilir">Döngü koruması (maks. zincir) <input name="maxHops" type="number" min="1" max="100"></label>
+        <label>claude yolu <input name="claudePath" placeholder="otomatik"></label>
+      </div>
+      <label class="muted" style="display:grid;gap:4px;margin-top:10px;font-size:12px">Sormadan çalıştırılabilecek komutlar (her satır bir kural, ör. <code>Bash(npm *)</code>)
+        <textarea name="allowedTools" rows="4" style="font-family:ui-monospace,Menlo,monospace;font-size:12px"></textarea></label>
+      <p class="muted" id="claudeBinInfo"></p>
+      <h4>Ekip</h4>
+      <div id="teamEditor"></div>
+      <div class="dlg-actions">
+        <button value="cancel" class="btn">Vazgeç</button>
+        <button value="save" class="btn primary" id="saveSettings">Kaydet</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toasts"></div>
+  <script src="office.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

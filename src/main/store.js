@@ -14,6 +14,8 @@ const DEFAULT_SETTINGS = {
   maxConcurrent: 3,
   maxHops: 12,                  // agent→agent chain depth before messages are held for the owner
   claudePath: '',
+  // Headless agents can't answer permission prompts; these commands run without asking.
+  allowedTools: ['Bash(npm *)', 'Bash(npx *)', 'Bash(yarn *)', 'Bash(pnpm *)', 'Bash(node *)', 'Bash(git status*)', 'Bash(git diff*)', 'Bash(git log*)', 'Bash(ls *)', 'Bash(cat *)'],
   team: DEFAULT_TEAM,
 };
 

@@ -7,6 +7,10 @@ const crypto = require('crypto');
 const { buildSystemPrompt, parseActions, stripActions, resolveRecipients, summarizeToolUse } = require('./protocol');
 
 const LOG_LIMIT = 300;
+// Built-in Claude Code tools that would bypass the office board/bus (their own
+// todo lists, inter-session messaging, worktrees) and confuse teammates.
+const BLOCKED_TOOLS = ['TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TaskStop', 'SendMessage', 'ListAgents',
+  'EnterWorktree', 'ExitWorktree', 'CronCreate', 'CronDelete', 'ScheduleWakeup', 'PushNotification', 'RemoteTrigger'];
 
 class AgentManager extends EventEmitter {
   constructor(store, runtimeEnv) {
@@ -214,8 +218,10 @@ class AgentManager extends EventEmitter {
   buildPrompt(agent, batch) {
     const nameOf = (id) => (id === 'user' ? 'Owner (user)' : (() => { const a = this.agent(id); return a ? `${a.name} (${a.title}, id=${a.id})` : id; })());
     const parts = batch.map((m) => `--- ${m.kind === 'task' ? 'Task notice' : 'Message'} from ${nameOf(m.from)} · to ${m.to.map((t) => (t === agent.id ? 'you' : t)).join(', ')}\n${m.text}`);
-    const open = this.store.project().tasks.filter((t) => t.assignee === agent.id && t.status !== 'done');
-    const board = open.length ? `\n\nYour open tasks:\n${open.map((t) => `- ${t.id} [${t.status}] ${t.title}`).join('\n')}` : '';
+    const open = this.store.project().tasks.filter((t) => t.status !== 'done').slice(-20);
+    const board = open.length
+      ? `\n\nOpen tasks on the board:\n${open.map((t) => `- ${t.id} [${t.status}] ${t.title} → ${t.assignee === agent.id ? 'YOU' : t.assignee || 'unassigned'}`).join('\n')}`
+      : '';
     return `[Agent Office] ${batch.length} new item(s) in your inbox:\n\n${parts.join('\n\n')}${board}\n\nHandle them now. Use <message>/<task>/<task-update> tags to talk to teammates.`;
   }
 
@@ -228,7 +234,10 @@ class AgentManager extends EventEmitter {
     let session = project.sessions[agent.id];
     const args = ['-p', '--output-format', 'stream-json', '--verbose',
       '--append-system-prompt', buildSystemPrompt(agent, this.team, { projectDir: settings.projectDir, language: settings.language }),
-      '--permission-mode', settings.permissionMode || 'acceptEdits'];
+      '--permission-mode', settings.permissionMode || 'acceptEdits',
+      '--disallowedTools', BLOCKED_TOOLS.join(',')];
+    const allowed = (settings.allowedTools || []).filter(Boolean);
+    if (allowed.length) args.push('--allowedTools', ...allowed);
     const model = agent.model || settings.model;
     if (model) args.push('--model', model);
     if (session?.started) args.push('--resume', session.id);
@@ -339,7 +348,9 @@ class AgentManager extends EventEmitter {
       } else if (act.type === 'task') {
         this.createTask({ title: act.title, details: act.details, assignee: act.assignee, createdBy: agent.id, depth });
       } else if (act.type === 'task-update') {
-        this.updateTask(act.id, { status: act.status, note: act.note }, agent.id, depth);
+        if (!this.updateTask(act.id, { status: act.status, note: act.note }, agent.id, depth)) {
+          this.emit('system', `${agent.name}: panoda olmayan görev güncellendi (${act.id})`);
+        }
       }
     }
   }

@@ -6,7 +6,7 @@ const DEFAULT_TEAM = [
   {
     id: 'pm', name: 'Ayşe', title: 'Product Manager', color: '#e76f51', enabled: true,
     aliases: ['product', 'productmanager', 'product-manager'],
-    duties: 'Turns the owner\'s goals into a clear scope, acceptance criteria and small tasks. Assigns work, tracks progress on the task board, keeps the owner informed and decides priorities. Does not write production code.',
+    duties: 'Turns the owner\'s goals into a clear scope, acceptance criteria and small tasks. Assigns work, tracks progress on the task board, keeps the owner informed and decides priorities. Sequences work: hands an item to QA only after its developer reports it done. Reports the final outcome to the owner. Does not write production code.',
   },
   {
     id: 'lead', name: 'Mert', title: 'Tech Lead', color: '#2a9d8f', enabled: true,
@@ -62,11 +62,15 @@ Put these tags anywhere in your reply text. Anything outside tags is only visibl
 - <message to="qa">text</message> — direct message. to can be an id, a comma list ("frontend,backend"), "all", or "user" (the owner).
 - <task assignee="backend" title="Short title">details / acceptance criteria</task> — creates a task on the shared board and notifies the assignee.
 - <task-update id="T-3" status="doing|review|done|blocked">short note</task-update> — updates a task. The task creator is notified on done/blocked.
+The shared board exists ONLY through these tags — task ids (T-n) are assigned by the office and shown to you in each turn. To assign work, always create a <task>; a task id you invent does not exist.
+A request that arrived as a plain message (not a board task) gets its answer as a <message> back to the sender.
 
 ## Working rules
 - Write messages and task text in ${lang}. Keep them short and concrete (file paths, commands, results).
 - Do not send acknowledgements, thanks or "on it" messages. Only message when someone needs information or must act.
 - When you finish work someone asked for, report back to them once, with a summary. Mark your tasks with <task-update>.
+- Check the board shown in each turn before creating a task; never duplicate an existing task — update it instead.
+- Verification waits for completion: don't test or review something until its owner reports it done.
 - Before editing files, make sure the Tech Lead (or the task) assigned those files to you, so two agents never edit the same file at once.
 - Ask the owner (to="user") only for decisions you cannot make yourself.
 - Each incoming batch of messages is one turn: do the work with your tools, then reply. Your session remembers previous turns.`;

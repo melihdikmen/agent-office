@@ -8,7 +8,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main/main.js && node --check src/main/agents.js && node --check src/main/scanner.js && node --check src/main/store.js && node --check src/main/protocol.js && node --test test/",
+    "check": "node --check src/main/main.js && node --check src/main/agents.js && node --check src/main/scanner.js && node --check src/main/store.js && node --check src/main/protocol.js && node --test test/*.test.js",
     "dist": "electron-builder --mac"
   },
   "build": {
