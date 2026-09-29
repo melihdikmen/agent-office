@@ -41,6 +41,13 @@ const DEFAULT_TEAM = [
 ];
 
 const TASK_STATUSES = ['todo', 'doing', 'review', 'done', 'blocked'];
+// Task size picks the assignee's model and effort for that turn (see agents.js).
+const TASK_SIZES = ['s', 'm', 'l'];
+const SIZE_ALIASES = { s: 's', small: 's', kucuk: 's', 'küçük': 's', m: 'm', medium: 'm', orta: 'm', l: 'l', large: 'l', buyuk: 'l', 'büyük': 'l' };
+
+function normSize(v) {
+  return SIZE_ALIASES[String(v || '').trim().toLowerCase()] || null;
+}
 
 function buildSystemPrompt(agent, team, opts = {}) {
   const roster = team
@@ -60,10 +67,16 @@ ${roster}
 ## How to communicate (the ONLY way teammates can hear you)
 Put these tags anywhere in your reply text. Anything outside tags is only visible to the owner in your log.
 - <message to="qa">text</message> — direct message. to can be an id, a comma list ("frontend,backend"), "all", or "user" (the owner).
-- <task assignee="backend" title="Short title">details / acceptance criteria</task> — creates a task on the shared board and notifies the assignee.
+- <task assignee="backend" title="Short title" size="s|m|l">details / acceptance criteria</task> — creates a task on the shared board and notifies the assignee.
 - <task-update id="T-3" status="doing|review|done|blocked">short note</task-update> — updates a task. The task creator is notified on done/blocked.
 The shared board exists ONLY through these tags — task ids (T-n) are assigned by the office and shown to you in each turn. To assign work, always create a <task>; a task id you invent does not exist.
 A request that arrived as a plain message (not a board task) gets its answer as a <message> back to the sender.
+
+## Task size (always set it)
+size picks the assignee's model: s = fast/cheap, m = standard, l = strongest. Pick the smallest that fits; don't inflate.
+- s: one small or mechanical change, a quick check, a lookup, a single command.
+- m: a normal feature or bug fix across a few files, a normal review or verification.
+- l: cross-cutting or architectural work, hard debugging, anything risky.
 
 ## Working rules
 - Write messages and task text in ${lang}. Keep them short and concrete (file paths, commands, results).
@@ -73,7 +86,17 @@ A request that arrived as a plain message (not a board task) gets its answer as 
 - Verification waits for completion: don't test or review something until its owner reports it done.
 - Before editing files, make sure the Tech Lead (or the task) assigned those files to you, so two agents never edit the same file at once.
 - Ask the owner (to="user") only for decisions you cannot make yourself.
-- Each incoming batch of messages is one turn: do the work with your tools, then reply. Your session remembers previous turns.`;
+- Each incoming batch of messages is one turn: do the work with your tools, then reply. Your session remembers previous turns.
+
+## Token budget (every tool call re-sends your whole context — keep it small)
+- Effort matches the task size. Do what the task asks, nothing more; no side investigations.
+- Find with Grep/Glob, then read only the relevant lines (Read with offset/limit). Don't read whole large files or re-read files you already have.
+- Keep command output short: pipe through tail/grep/head; run only the tests related to the change.
+- Reuse existing tests and scripts. Write a new test or script only when the task asks for it or nothing existing covers it.
+- Don't redo work that is already done or verified; trust teammates' reports unless something contradicts them.
+- One tag per recipient per turn: put all details and notes for a task inside the <task> itself, not in a follow-up <message>.
+- When you close a task, the report goes in the <task-update> note only; don't send the same content again as a <message>.
+- Reply text outside tags: at most 2 short lines.`;
 }
 
 function parseAttrs(s) {
@@ -100,7 +123,7 @@ function parseActions(text) {
     } else if (tag === 'task') {
       const title = (attrs.title || body.split('\n')[0] || '').trim();
       if (!title) continue;
-      actions.push({ type: 'task', assignee: (attrs.assignee || attrs.to || '').trim(), title, details: body });
+      actions.push({ type: 'task', assignee: (attrs.assignee || attrs.to || '').trim(), title, details: body, size: normSize(attrs.size) });
     } else {
       if (!attrs.id) continue;
       const status = (attrs.status || '').toLowerCase();
@@ -150,4 +173,4 @@ function summarizeToolUse(name, input = {}) {
   return name;
 }
 
-module.exports = { DEFAULT_TEAM, TASK_STATUSES, buildSystemPrompt, parseActions, stripActions, resolveRecipients, summarizeToolUse };
+module.exports = { DEFAULT_TEAM, TASK_STATUSES, TASK_SIZES, normSize, buildSystemPrompt, parseActions, stripActions, resolveRecipients, summarizeToolUse };

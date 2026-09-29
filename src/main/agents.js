@@ -4,7 +4,9 @@
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const crypto = require('crypto');
-const { buildSystemPrompt, parseActions, stripActions, resolveRecipients, summarizeToolUse } = require('./protocol');
+const fs = require('fs');
+const path = require('path');
+const { TASK_SIZES, buildSystemPrompt, parseActions, stripActions, resolveRecipients, summarizeToolUse } = require('./protocol');
 
 const LOG_LIMIT = 300;
 // Built-in Claude Code tools that would bypass the office board/bus (their own
@@ -26,14 +28,15 @@ class AgentManager extends EventEmitter {
   agent(id) { return this.team.find((a) => a.id === id); }
 
   runtime(id) {
-    if (!this.rt.has(id)) this.rt.set(id, { status: 'idle', activity: '', inbox: [], log: [], proc: null, turns: 0, cost: 0, lastError: '' });
+    if (!this.rt.has(id)) this.rt.set(id, { status: 'idle', activity: '', inbox: [], outbox: [], log: [], proc: null, turns: 0, cost: 0, lastError: '' });
     return this.rt.get(id);
   }
 
   snapshot(id) {
     const r = this.runtime(id);
     const s = this.store.project().sessions[id];
-    return { id, status: r.status, activity: r.activity, inbox: r.inbox.length, turns: r.turns, cost: r.cost, lastError: r.lastError, sessionId: s?.id || null };
+    return { id, status: r.status, activity: r.activity, inbox: r.inbox.length, turns: r.turns, cost: r.cost, lastError: r.lastError, sessionId: s?.id || null,
+      model: r.model || '', size: r.size || '', ctx: s?.ctx || 0 };
   }
 
   state() {
@@ -76,8 +79,19 @@ class AgentManager extends EventEmitter {
     this.store.pushMessage(msg);
     this.emit('message', msg);
     if (msg.to.includes('user') && msg.from !== 'user') this.emit('notify', msg);
-    if (!msg.held) this.enqueue(msg, agentTargets);
+    if (!msg.held) {
+      // Hold an agent's outgoing items until its turn ends, so a <task> and the
+      // <message> that follows it reach the recipient in one batch, not two turns.
+      const sender = msg.from !== 'user' && this.rt.get(msg.from);
+      if (sender?.proc) sender.outbox.push({ msg, targets: agentTargets });
+      else this.enqueue(msg, agentTargets);
+    }
     return msg;
+  }
+
+  flushOutbox(id) {
+    const r = this.runtime(id);
+    for (const { msg, targets } of r.outbox.splice(0)) this.enqueue(msg, targets);
   }
 
   enqueue(msg, targets) {
@@ -103,26 +117,27 @@ class AgentManager extends EventEmitter {
   }
 
   // ---- tasks ---------------------------------------------------------------
-  createTask({ title, details = '', assignee, createdBy, depth = 0 }) {
+  createTask({ title, details = '', assignee, createdBy, depth = 0, size = null }) {
     const p = this.store.project();
     const { ids } = resolveRecipients([assignee || ''], this.team, null);
     const target = ids.find((i) => i !== 'user') || null;
-    const task = { id: `T-${p.nextTask++}`, title, details, assignee: target, createdBy, status: 'todo', notes: [], created: Date.now(), updated: Date.now() };
+    const task = { id: `T-${p.nextTask++}`, title, details, size: TASK_SIZES.includes(size) ? size : null, assignee: target, createdBy, status: 'todo', notes: [], created: Date.now(), updated: Date.now() };
     p.tasks.push(task);
     this.store.save();
     this.emit('tasks', p.tasks);
     if (target && target !== createdBy) {
-      this.deliver({ from: createdBy, to: [target], text: `New task ${task.id}: ${title}${details && details !== title ? `\n${details}` : ''}`, depth, kind: 'task', taskId: task.id });
+      this.deliver({ from: createdBy, to: [target], text: `New task ${task.id}: ${title}${details && details !== title ? `\n${details}` : ''}`, depth, kind: 'task', taskId: task.id, assign: true });
     }
     return task;
   }
 
-  updateTask(id, { status, note, assignee }, by = 'user', depth = 0) {
+  updateTask(id, { status, note, assignee, size }, by = 'user', depth = 0) {
     const p = this.store.project();
     const task = p.tasks.find((t) => t.id === id);
     if (!task) return null;
     if (status) task.status = status;
     if (assignee !== undefined) task.assignee = assignee || null;
+    if (size !== undefined) task.size = TASK_SIZES.includes(size) ? size : null;
     if (note) task.notes.push({ by, ts: Date.now(), text: note });
     task.updated = Date.now();
     this.store.save();
@@ -131,7 +146,7 @@ class AgentManager extends EventEmitter {
       this.deliver({ from: by, to: [task.createdBy], text: `${task.id} "${task.title}" → ${status}${note ? `: ${note}` : ''}`, depth, kind: 'task', taskId: task.id });
     }
     if (by === 'user' && assignee && assignee !== 'user') {
-      this.deliver({ from: 'user', to: [assignee], text: `Task ${task.id} is now assigned to you: ${task.title}\n${task.details || ''}`, depth: 0, kind: 'task', taskId: task.id });
+      this.deliver({ from: 'user', to: [assignee], text: `Task ${task.id} is now assigned to you: ${task.title}\n${task.details || ''}`, depth: 0, kind: 'task', taskId: task.id, assign: true });
     }
     return task;
   }
@@ -215,14 +230,43 @@ class AgentManager extends EventEmitter {
     this.emit('agent', this.snapshot(id));
   }
 
-  buildPrompt(agent, batch) {
+  // Model + effort for one turn. A per-role or global model setting wins; otherwise
+  // the largest task assigned in this batch decides. Everything else (plain messages,
+  // status notices, owner requests) counts as "m".
+  turnProfile(agent, batch) {
+    const s = this.store.settings;
+    const tasks = this.store.project().tasks;
+    let size = 's';
+    for (const m of batch) {
+      const t = m.assign && tasks.find((x) => x.id === m.taskId);
+      const sz = (t && t.size) || 'm';
+      if (TASK_SIZES.indexOf(sz) > TASK_SIZES.indexOf(size)) size = sz;
+    }
+    const fixed = agent.model || s.model;
+    const auto = (s.autoModels || {})[size] || {};
+    return { size, model: fixed || auto.model || '', effort: fixed ? '' : auto.effort || '' };
+  }
+
+  // Short memory for an agent whose session was reset: its recent conversation and open tasks.
+  recap(agent, batch) {
+    const p = this.store.project();
+    const skip = new Set(batch.map((m) => m.id));
+    const clip = (t, n) => (t.length > n ? `${t.slice(0, n)}…` : t);
+    const msgs = p.messages.filter((m) => !skip.has(m.id) && (m.from === agent.id || m.to.includes(agent.id))).slice(-8)
+      .map((m) => `- ${m.from} → ${m.to.join(',')}: ${clip(m.text.replace(/\s+/g, ' '), 300)}`);
+    const mine = p.tasks.filter((t) => t.assignee === agent.id && t.status !== 'done')
+      .map((t) => `- ${t.id} [${t.status}] ${t.title}: ${clip((t.details || '').replace(/\s+/g, ' '), 400)}`);
+    return `\n\n(Your previous session was closed to save tokens. Recap — re-read files only if you need them.)${msgs.length ? `\nRecent conversation:\n${msgs.join('\n')}` : ''}${mine.length ? `\nYour open tasks:\n${mine.join('\n')}` : ''}`;
+  }
+
+  buildPrompt(agent, batch, recap = '') {
     const nameOf = (id) => (id === 'user' ? 'Owner (user)' : (() => { const a = this.agent(id); return a ? `${a.name} (${a.title}, id=${a.id})` : id; })());
     const parts = batch.map((m) => `--- ${m.kind === 'task' ? 'Task notice' : 'Message'} from ${nameOf(m.from)} · to ${m.to.map((t) => (t === agent.id ? 'you' : t)).join(', ')}\n${m.text}`);
     const open = this.store.project().tasks.filter((t) => t.status !== 'done').slice(-20);
     const board = open.length
       ? `\n\nOpen tasks on the board:\n${open.map((t) => `- ${t.id} [${t.status}] ${t.title} → ${t.assignee === agent.id ? 'YOU' : t.assignee || 'unassigned'}`).join('\n')}`
       : '';
-    return `[Agent Office] ${batch.length} new item(s) in your inbox:\n\n${parts.join('\n\n')}${board}\n\nHandle them now. Use <message>/<task>/<task-update> tags to talk to teammates.`;
+    return `[Agent Office] ${batch.length} new item(s) in your inbox:\n\n${parts.join('\n\n')}${recap}${board}\n\nHandle them now. Use <message>/<task>/<task-update> tags to talk to teammates.`;
   }
 
   runTurn(agent, retried = false) {
@@ -236,18 +280,35 @@ class AgentManager extends EventEmitter {
       '--append-system-prompt', buildSystemPrompt(agent, this.team, { projectDir: settings.projectDir, language: settings.language }),
       '--permission-mode', settings.permissionMode || 'acceptEdits',
       '--disallowedTools', BLOCKED_TOOLS.join(',')];
+    if (settings.lean !== false) {
+      args.push('--disable-slash-commands', '--strict-mcp-config');
+      const projectMcp = path.join(settings.projectDir || '', '.mcp.json');
+      if (settings.projectDir && fs.existsSync(projectMcp)) args.push('--mcp-config', projectMcp);
+    }
     const allowed = (settings.allowedTools || []).filter(Boolean);
     if (allowed.length) args.push('--allowedTools', ...allowed);
-    const model = agent.model || settings.model;
-    if (model) args.push('--model', model);
+    const profile = this.turnProfile(agent, batch);
+    if (profile.model) args.push('--model', profile.model);
+    if (profile.effort) args.push('--effort', profile.effort);
+    // Every tool call re-sends the whole session, so a long session gets replaced
+    // by a fresh one with a short recap instead of growing without bound.
+    let recap = '';
+    const limit = +settings.contextLimit || 0;
+    if (session?.started && limit && session.ctx > limit) {
+      this.pushLog(agent.id, { kind: 'system', text: `Bağlam ${Math.round(session.ctx / 1000)}k token — yeni oturum açılıyor.` });
+      session = null;
+      recap = this.recap(agent, batch);
+    }
     if (session?.started) args.push('--resume', session.id);
     else {
-      session = { id: crypto.randomUUID(), started: false };
+      session = { id: crypto.randomUUID(), started: false, ctx: 0 };
       project.sessions[agent.id] = session;
       args.push('--session-id', session.id);
     }
     this.store.save();
 
+    r.model = profile.model;
+    r.size = profile.size;
     r.turns++;
     r.lastError = '';
     r.stopRequested = false;
@@ -265,7 +326,7 @@ class AgentManager extends EventEmitter {
     }
     r.proc = proc;
     this.emit('pids', this.pids());
-    proc.stdin.end(this.buildPrompt(agent, batch));
+    proc.stdin.end(this.buildPrompt(agent, batch, recap));
 
     let buf = '';
     let stderr = '';
@@ -278,6 +339,8 @@ class AgentManager extends EventEmitter {
         session.started = true;
         this.store.save();
       } else if (ev.type === 'assistant') {
+        const u = ev.message?.usage;
+        if (u) session.ctx = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
         for (const block of ev.message?.content || []) {
           if (block.type === 'text' && block.text) this.handleText(agent, block.text, depth + 1);
           else if (block.type === 'thinking') this.setActivity(agent.id, 'working', 'düşünüyor…');
@@ -317,6 +380,7 @@ class AgentManager extends EventEmitter {
       if (buf) onLine(buf);
       r.proc = null;
       this.emit('pids', this.pids());
+      this.flushOutbox(agent.id);
       if (r.stopRequested) {
         this.pushLog(agent.id, { kind: 'system', text: 'Durduruldu.' });
       } else if (code !== 0 && !gotResult) {
@@ -346,7 +410,7 @@ class AgentManager extends EventEmitter {
         if (unknown.length) this.emit('system', `${agent.name}: bilinmeyen alıcı ${unknown.join(', ')}`);
         if (ids.length) this.deliver({ from: agent.id, to: ids, text: act.text, depth, kind: 'message' });
       } else if (act.type === 'task') {
-        this.createTask({ title: act.title, details: act.details, assignee: act.assignee, createdBy: agent.id, depth });
+        this.createTask({ title: act.title, details: act.details, size: act.size, assignee: act.assignee, createdBy: agent.id, depth });
       } else if (act.type === 'task-update') {
         if (!this.updateTask(act.id, { status: act.status, note: act.note }, agent.id, depth)) {
           this.emit('system', `${agent.name}: panoda olmayan görev güncellendi (${act.id})`);

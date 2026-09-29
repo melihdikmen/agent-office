@@ -8,7 +8,15 @@ const MAX_MESSAGES = 600;
 
 const DEFAULT_SETTINGS = {
   projectDir: '',
-  model: '',                    // '' = claude default
+  model: '',                    // '' = automatic: picked per turn from task size (autoModels)
+  // Task size → model + effort. Plain messages count as "m".
+  autoModels: {
+    s: { model: 'claude-haiku-4-5-20251001', effort: 'low' },
+    m: { model: 'claude-sonnet-5-5', effort: 'medium' },
+    l: { model: 'claude-opus-5-5', effort: 'high' },
+  },
+  contextLimit: 60000,          // tokens; a session above this starts fresh next turn (0 = never)
+  lean: true,                   // skip skills and user/global MCP servers in agent sessions
   permissionMode: 'acceptEdits',
   language: 'Turkish',
   maxConcurrent: 3,

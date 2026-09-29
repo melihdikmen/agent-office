@@ -9,6 +9,10 @@
   const dur = (s) => (s > 86400 ? `${Math.floor(s / 86400)}g ${Math.floor((s % 86400) / 3600)}s` : s > 3600 ? `${Math.floor(s / 3600)}s ${Math.floor((s % 3600) / 60)}dk` : `${Math.floor(s / 60)}dk`);
   const STATUS_TR = { idle: 'boşta', queued: 'sırada', working: 'çalışıyor', error: 'hata', stopped: 'durdu' };
   const TASK_TR = { todo: 'Yapılacak', doing: 'Yapılıyor', review: 'İncelemede', done: 'Bitti', blocked: 'Engelli' };
+  const SIZE_TR = { s: 'Küçük', m: 'Orta', l: 'Büyük' };
+  const MODELS = [['claude-opus-5-5', 'Opus 5.5'], ['claude-sonnet-5-5', 'Sonnet 5.5'], ['claude-fable-5-1', 'Fable 5.1'], ['claude-haiku-4-5-20251001', 'Haiku 4.5']];
+  const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+  const modelName = (id) => (MODELS.find(([v]) => v === id) || [0, id || 'varsayılan'])[1];
   const KIND_ICON = { 'claude-code': '✳', 'claude-desktop': '✳', cursor: '⌘', 'cursor-agent': '⌘', 'cursor-cli': '⌘', codex: '◎', gemini: '✦', ollama: '🦙', aider: 'A', opencode: '◇', goose: '🪿', copilot: '◉', amp: '⚡', windsurf: '〰', lmstudio: '▣' };
   const KIND_COLOR = { 'claude-code': '#d97757', 'claude-desktop': '#c15f3c', cursor: '#d9d9de', 'cursor-agent': '#9aa0aa', codex: '#10a37f', gemini: '#4c8bf5', ollama: '#f2f2f2' };
 
@@ -44,7 +48,7 @@
     renderRecipients();
     renderFeed();
     renderAgentTab();
-    renderTasks();
+    renderBoard();
   }
 
   function renderTop() {
@@ -105,6 +109,7 @@
     const isNew = i < 0;
     if (isNew) S.messages.push(m); else S.messages[i] = m;
     if (isNew) office.onMessage(m);
+    if (B.open && B.drawer && B.drawer !== 'new') renderDrawer();
     else if (!m.held) office.onMessage(m); // released
     const list = $('#feedList');
     const existing = list.querySelector(`[data-id="${m.id}"]`);
@@ -122,7 +127,7 @@
   function setTab(tab) {
     S.tab = tab;
     document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-    ['agent', 'tasks', 'radar'].forEach((t) => $(`#tab-${t}`).classList.toggle('hidden', t !== tab));
+    ['agent', 'radar'].forEach((t) => $(`#tab-${t}`).classList.toggle('hidden', t !== tab));
     if (tab === 'radar') scan();
   }
 
@@ -173,6 +178,8 @@
         <div class="stat"><b>${s.inbox || 0}</b><span>gelen kutusu</span></div>
         <div class="stat"><b>$${(s.cost || 0).toFixed(2)}</b><span>maliyet</span></div>
         <div class="stat" title="${esc(s.sessionId || '')}"><b>${s.sessionId ? s.sessionId.slice(0, 6) : '—'}</b><span>oturum</span></div>
+        <div class="stat" title="Son turdaki model${s.size ? ' · iş boyutu: ' + SIZE_TR[s.size] : ''}"><b>${s.model || s.turns ? esc(modelName(s.model)) : '—'}</b><span>model</span></div>
+        <div class="stat" title="Her araç çağrısında yeniden gönderilen bağlam"><b>${s.ctx ? Math.round(s.ctx / 1000) + 'k' : '—'}</b><span>bağlam</span></div>
       </div>
       <div class="row-actions">
         <button class="btn small" data-a="stop">⏹ Durdur</button>
@@ -231,46 +238,222 @@
     else if (!snap.lastError && err) err.remove();
   }
 
-  // ---- tasks ---------------------------------------------------------------
-  function renderTasks() {
-    const box = $('#tab-tasks');
-    const open = S.tasks.filter((t) => t.status !== 'done').length;
-    $('#taskCount').textContent = open || '';
+  // ---- task board (full-screen dashboard) ------------------------------------
+  const COLS = ['todo', 'doing', 'review', 'blocked', 'done'];
+  const COL_COLOR = { todo: '#8d99ae', doing: '#5eead4', review: '#a78bfa', blocked: '#ff6b6b', done: '#6ee7a1' };
+  const SIZE_SHORT = { s: 'K', m: 'O', l: 'B' };
+  const DONE_LIMIT = 12;
+  const B = { open: false, q: '', size: '', who: '', drawer: null, allDone: false };
+
+  const ago = (ts) => {
+    const m = Math.max(0, Math.round((Date.now() - ts) / 60000));
+    return m < 1 ? 'şimdi' : m < 60 ? `${m} dk` : m < 1440 ? `${Math.round(m / 60)} sa` : `${Math.round(m / 1440)} g`;
+  };
+  const span = (ms) => {
+    const m = Math.round(ms / 60000);
+    return m < 60 ? `${m} dk` : `${Math.floor(m / 60)} sa ${m % 60} dk`;
+  };
+
+  function updateTaskCount() {
+    $('#taskCount').textContent = S.tasks.filter((t) => t.status !== 'done').length || '';
+  }
+
+  function openBoard(open = !B.open) {
+    B.open = open;
+    $('#board').classList.toggle('hidden', !open);
+    $('#boardBtn').classList.toggle('on', open);
+    if (open) renderBoard();
+    else closeDrawer();
+  }
+
+  function visibleTasks() {
+    const q = B.q.trim().toLowerCase();
+    return S.tasks.filter((t) => (!B.who || (B.who === '-' ? !t.assignee : t.assignee === B.who))
+      && (!B.size || (B.size === '-' ? !t.size : t.size === B.size))
+      && (!q || `${t.id} ${t.title} ${t.details || ''}`.toLowerCase().includes(q)));
+  }
+
+  function renderBoard() {
+    updateTaskCount();
+    if (!B.open) return;
+    $('#bdProject').textContent = S.settings.projectDir ? `· ${S.settings.projectDir.split('/').pop()}` : '';
+    renderKpis();
+    renderBoardTeam();
+    renderCols();
+    if (B.drawer && B.drawer !== 'new') renderDrawer();
+  }
+
+  function renderKpis() {
+    const all = S.tasks;
+    const n = (st) => all.filter((t) => t.status === st).length;
+    const done = all.filter((t) => t.status === 'done');
+    const pct = all.length ? Math.round((done.length / all.length) * 100) : 0;
+    const avg = done.length ? done.reduce((a, t) => a + (t.updated - t.created), 0) / done.length : 0;
+    const turns = [...S.agents.values()].reduce((a, s) => a + (s.turns || 0), 0);
+    const working = [...S.agents.values()].filter((s) => s.status === 'working').length;
+    const kpi = (label, value, sub, cls = '') => `<div class="kpi ${cls}"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
+    $('#bdKpis').innerHTML = [
+      kpi('Açık görev', all.length - done.length, `${n('todo')} yapılacak · ${n('doing')} yapılıyor · ${n('review')} incelemede`),
+      kpi('Engelli', n('blocked'), n('blocked') ? 'müdahale gerekebilir' : 'engel yok', n('blocked') ? 'bad' : ''),
+      `<div class="kpi"><span>İlerleme</span><b>%${pct}</b><small>${done.length}/${all.length} görev bitti</small><i class="bar"><i style="width:${pct}%"></i></i></div>`,
+      kpi('Ort. bitirme süresi', done.length ? span(avg) : '—', 'açılıştan bitişe'),
+      kpi('Ekip', `${working}/${S.team.length}`, `çalışıyor · ${turns} tur bu oturumda`),
+      kpi('Maliyet', `$${S.cost.toFixed(2)}`, 'bu projede toplam'),
+    ].join('');
+  }
+
+  function renderBoardTeam() {
+    if (!B.open) return;
+    const box = $('#bdTeam');
     box.innerHTML = '';
-    const opts = `<option value="">— atanmamış —</option>` + S.team.map((a) => `<option value="${a.id}">${esc(a.name)} (${esc(a.title)})</option>`).join('');
-    const form = h(`<form class="task-new card">
-      <div class="r"><input name="title" placeholder="Yeni görev başlığı" required><select name="assignee">${opts}</select><button class="btn primary">Ekle</button></div>
-      <textarea name="details" rows="2" placeholder="Detay / kabul kriterleri (opsiyonel)"></textarea></form>`);
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      const fd = new FormData(form);
-      await api.taskCreate({ title: fd.get('title'), details: fd.get('details'), assignee: fd.get('assignee') });
-      form.reset();
-    };
-    box.append(form);
-    if (!S.tasks.length) box.append(h('<p class="muted">Pano boş. Ajanlar &lt;task&gt; etiketiyle görev açtıkça burada görünür; sen de ekleyebilirsin.</p>'));
-    for (const st of ['blocked', 'doing', 'review', 'todo', 'done']) {
-      const items = S.tasks.filter((t) => t.status === st).sort((a, b) => b.updated - a.updated);
-      if (!items.length) continue;
-      box.append(h(`<div class="col-title"><span>${TASK_TR[st]}</span><span>${items.length}</span></div>`));
-      for (const t of items) {
-        const a = who(t.assignee);
-        const el = h(`<div class="task" style="border-left-color:${t.assignee ? a.color : '#555'}">
-          <div class="t">${esc(t.id)} · ${esc(t.title)}</div>
-          ${t.details && t.details !== t.title ? `<div class="d">${esc(t.details)}</div>` : ''}
-          ${t.notes.length ? `<div class="d">💬 ${esc(who(t.notes[t.notes.length - 1].by).name)}: ${esc(t.notes[t.notes.length - 1].text)}</div>` : ''}
-          <div class="f"><select class="st">${Object.entries(TASK_TR).map(([k, v]) => `<option value="${k}" ${k === t.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
-            <select class="as">${opts}</select>
-            <span>${esc(who(t.createdBy).name)} açtı</span>
-            <button class="x" title="Sil">✕</button></div></div>`);
-        el.querySelector('.as').value = t.assignee || '';
-        el.querySelector('.st').onchange = (e) => api.taskUpdate({ id: t.id, patch: { status: e.target.value } });
-        el.querySelector('.as').onchange = (e) => api.taskUpdate({ id: t.id, patch: { assignee: e.target.value } });
-        el.querySelector('.x').onclick = () => confirm(`${t.id} silinsin mi?`) && api.taskDelete(t.id);
-        box.append(el);
-      }
+    for (const a of S.team) {
+      const s = S.agents.get(a.id) || {};
+      const mine = S.tasks.filter((t) => t.assignee === a.id && t.status !== 'done');
+      const segs = COLS.filter((c) => c !== 'done').map((c) => ({ c, n: mine.filter((t) => t.status === c).length })).filter((x) => x.n);
+      const el = h(`<button class="bd-agent ${B.who === a.id ? 'on' : ''}" title="Sadece ${esc(a.name)} görevlerini göster">
+        <div class="avatar sm" style="background:${a.color}">${esc(a.name[0])}</div>
+        <div class="bd-agent-body">
+          <div class="bd-agent-top"><b>${esc(a.name)}</b><span class="pill ${s.status || ''}">${STATUS_TR[s.status] || 'boşta'}</span></div>
+          <div class="bd-agent-act">${s.status === 'working' ? `⌨ ${esc(s.activity || 'çalışıyor')}` : s.status === 'queued' ? `${s.inbox} mesaj bekliyor` : esc(a.title)}</div>
+          <div class="bd-load">${segs.map(({ c, n }) => `<i style="flex:${n};background:${COL_COLOR[c]}" title="${n} ${TASK_TR[c]}"></i>`).join('') || '<i class="none"></i>'}</div>
+          <div class="bd-agent-meta">${mine.length} açık görev${s.model ? ` · ${esc(modelName(s.model))}` : ''}</div>
+        </div></button>`);
+      el.onclick = () => { B.who = B.who === a.id ? '' : a.id; renderBoard(); };
+      box.append(el);
+    }
+    const un = S.tasks.filter((t) => !t.assignee && t.status !== 'done').length;
+    if (un || B.who === '-') {
+      const el = h(`<button class="bd-agent slim ${B.who === '-' ? 'on' : ''}"><b>${un}</b><span class="muted">atanmamış</span></button>`);
+      el.onclick = () => { B.who = B.who === '-' ? '' : '-'; renderBoard(); };
+      box.append(el);
     }
   }
+
+  function cardEl(t) {
+    const a = who(t.assignee);
+    const s = t.assignee && S.agents.get(t.assignee);
+    const live = t.status === 'doing' && s?.status === 'working';
+    const last = t.notes[t.notes.length - 1];
+    const el = h(`<div class="bd-card ${t.status} ${B.drawer === t.id ? 'sel' : ''}" draggable="true" style="--c:${t.assignee ? a.color : '#555'}">
+      <div class="bd-card-top"><span class="tid">${esc(t.id)}</span>${t.size ? `<span class="sz ${t.size}" title="${SIZE_TR[t.size]} iş">${SIZE_SHORT[t.size]}</span>` : ''}
+        ${live ? '<span class="live" title="Atanan ajan şu an çalışıyor"></span>' : ''}<span class="age" title="${new Date(t.updated).toLocaleString('tr-TR')}">${t.status === 'done' ? '✓ ' + span(t.updated - t.created) : ago(t.updated)}</span></div>
+      <div class="bd-card-title">${esc(t.title)}</div>
+      ${last ? `<div class="bd-card-note">💬 ${esc(who(last.by).name)}: ${esc(last.text)}</div>` : t.details && t.details !== t.title ? `<div class="bd-card-note">${esc(t.details)}</div>` : ''}
+      <div class="bd-card-foot">${t.assignee ? `<span class="avatar xs" style="background:${a.color}">${esc(a.name[0])}</span>${esc(a.name)}` : '<span class="muted">atanmamış</span>'}
+        <span class="muted">← ${esc(who(t.createdBy).name)}</span>${t.notes.length > 1 ? `<span class="muted nc">💬 ${t.notes.length}</span>` : ''}</div></div>`);
+    el.onclick = () => openDrawer(t.id);
+    el.ondragstart = (e) => { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move'; el.classList.add('drag'); };
+    el.ondragend = () => el.classList.remove('drag');
+    return el;
+  }
+
+  function renderCols() {
+    const box = $('#bdCols');
+    box.innerHTML = '';
+    const tasks = visibleTasks();
+    for (const st of COLS) {
+      let items = tasks.filter((t) => t.status === st).sort((a, b) => b.updated - a.updated);
+      const total = items.length;
+      if (st === 'done' && !B.allDone) items = items.slice(0, DONE_LIMIT);
+      const col = h(`<div class="bd-col" data-st="${st}">
+        <div class="bd-col-head"><i style="background:${COL_COLOR[st]}"></i>${TASK_TR[st]}<span class="count">${total || ''}</span></div>
+        <div class="bd-col-body"></div></div>`);
+      const body = col.querySelector('.bd-col-body');
+      items.forEach((t) => body.append(cardEl(t)));
+      if (!total) body.append(h(`<div class="bd-empty">${st === 'blocked' ? 'Engel yok' : 'Görev yok'}</div>`));
+      if (total > items.length || (st === 'done' && B.allDone && total > DONE_LIMIT)) {
+        const more = h(`<button class="btn small bd-more">${B.allDone ? 'Daha az göster' : `+${total - items.length} görev daha`}</button>`);
+        more.onclick = () => { B.allDone = !B.allDone; renderCols(); };
+        body.append(more);
+      }
+      col.ondragover = (e) => { e.preventDefault(); col.classList.add('over'); };
+      col.ondragleave = (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove('over'); };
+      col.ondrop = (e) => {
+        e.preventDefault();
+        col.classList.remove('over');
+        const t = S.tasks.find((x) => x.id === e.dataTransfer.getData('text/plain'));
+        if (!t || t.status === st) return;
+        t.status = st;
+        t.updated = Date.now();
+        renderBoard();
+        api.taskUpdate({ id: t.id, patch: { status: st } });
+      };
+      box.append(col);
+    }
+  }
+
+  // ---- task drawer: details, notes, related messages, editing
+  function openDrawer(id) { B.drawer = id; renderDrawer(); renderCols(); }
+  function closeDrawer() { B.drawer = null; $('#bdDrawer').classList.add('hidden'); if (B.open) renderCols(); }
+
+  const assigneeOpts = (cur) => `<option value="">— atanmamış —</option>` + S.team.map((a) => `<option value="${a.id}" ${a.id === cur ? 'selected' : ''}>${esc(a.name)} (${esc(a.title)})</option>`).join('');
+  const sizeOpts = (cur) => `<option value="">— boyut yok —</option>` + Object.entries(SIZE_TR).map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${v}</option>`).join('');
+
+  function renderDrawer() {
+    const d = $('#bdDrawer');
+    d.classList.remove('hidden');
+    if (B.drawer === 'new') {
+      d.innerHTML = '';
+      const form = h(`<form class="bd-form">
+        <div class="bd-dh"><h3>Yeni görev</h3><button type="button" class="btn icon x">✕</button></div>
+        <label>Başlık<input name="title" required></label>
+        <label>Detay / kabul kriterleri<textarea name="details" rows="7"></textarea></label>
+        <div class="bd-grid"><label>Atanan<select name="assignee">${assigneeOpts(B.who && B.who !== '-' ? B.who : '')}</select></label>
+          <label>Boyut → model<select name="size">${sizeOpts('m')}</select></label></div>
+        <p class="muted">Bir ajana atarsan görev ona hemen iletilir.</p>
+        <button class="btn primary">Görevi oluştur</button></form>`);
+      form.querySelector('.x').onclick = closeDrawer;
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(form);
+        const t = await api.taskCreate({ title: fd.get('title').trim(), details: fd.get('details').trim(), assignee: fd.get('assignee'), size: fd.get('size') || null });
+        if (t) openDrawer(t.id); else closeDrawer();
+      };
+      d.append(form);
+      form.title.focus();
+      return;
+    }
+    const t = S.tasks.find((x) => x.id === B.drawer);
+    if (!t) { closeDrawer(); return; }
+    const re = new RegExp(`\\b${t.id}\\b`);
+    const related = S.messages.filter((m) => m.taskId === t.id || re.test(m.text)).slice(-15);
+    const el = h(`<div>
+      <div class="bd-dh"><span class="tid">${esc(t.id)}</span><span class="pill" style="color:${COL_COLOR[t.status]}">${TASK_TR[t.status]}</span><div class="spacer"></div><button class="btn icon x">✕</button></div>
+      <h3 class="bd-dtitle">${esc(t.title)}</h3>
+      <div class="bd-grid">
+        <label>Durum<select class="st">${COLS.map((c) => `<option value="${c}" ${c === t.status ? 'selected' : ''}>${TASK_TR[c]}</option>`).join('')}</select></label>
+        <label>Atanan<select class="as">${assigneeOpts(t.assignee)}</select></label>
+        <label>Boyut → model<select class="fsz">${sizeOpts(t.size)}</select></label>
+        <label>Açan<span class="ro">${esc(who(t.createdBy).name)} · ${new Date(t.created).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}</span></label>
+      </div>
+      ${t.details && t.details !== t.title ? `<h4>Detay</h4><div class="bd-details">${esc(t.details)}</div>` : ''}
+      <h4>Notlar <span class="count">${t.notes.length || ''}</span></h4>
+      ${t.notes.length ? `<div class="bd-tl">${t.notes.map((n) => `<div><b style="color:${who(n.by).color}">${esc(who(n.by).name)}</b> <span class="muted">${time(n.ts)}</span><p>${esc(n.text)}</p></div>`).join('')}</div>` : '<p class="muted">Henüz not yok.</p>'}
+      <h4>İlgili mesajlar <span class="count">${related.length || ''}</span></h4>
+      ${related.length ? `<div class="bd-tl">${related.map((m) => `<div><b style="color:${who(m.from).color}">${esc(who(m.from).name)}</b> <span class="muted">→ ${m.to.map((x) => esc(who(x).name)).join(', ')} · ${time(m.ts)}</span><p>${esc(m.text)}</p></div>`).join('')}</div>` : '<p class="muted">Bu göreve değinen mesaj yok.</p>'}
+      <div class="bd-dfoot"><button class="btn small danger del">Görevi sil</button></div></div>`);
+    el.querySelector('.x').onclick = closeDrawer;
+    el.querySelector('.st').onchange = (e) => api.taskUpdate({ id: t.id, patch: { status: e.target.value } });
+    el.querySelector('.as').onchange = (e) => api.taskUpdate({ id: t.id, patch: { assignee: e.target.value } });
+    el.querySelector('.fsz').onchange = (e) => api.taskUpdate({ id: t.id, patch: { size: e.target.value } });
+    el.querySelector('.del').onclick = () => { if (confirm(`${t.id} silinsin mi?`)) { api.taskDelete(t.id); closeDrawer(); } };
+    const scroll = d.scrollTop;
+    d.innerHTML = '';
+    d.append(el);
+    d.scrollTop = scroll;
+  }
+
+  $('#boardBtn').onclick = () => openBoard();
+  $('#bdClose').onclick = () => openBoard(false);
+  $('#bdNew').onclick = () => { B.drawer = 'new'; renderDrawer(); };
+  $('#bdSearch').oninput = (e) => { B.q = e.target.value; renderCols(); };
+  $('#bdSize').onchange = (e) => { B.size = e.target.value; renderCols(); };
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !B.open || document.querySelector('dialog[open]')) return;
+    if (B.drawer) closeDrawer(); else openBoard(false);
+  });
+  // Relative times on cards ("5 dk") go stale; refresh them once a minute.
+  setInterval(() => { if (B.open && !document.hidden) renderCols(); }, 60000);
 
   // ---- radar ---------------------------------------------------------------
   let scanning = false;
@@ -347,10 +530,20 @@
     const s = S.settings;
     f.language.value = s.language; f.maxConcurrent.value = s.maxConcurrent; f.maxHops.value = s.maxHops; f.claudePath.value = s.claudePath || '';
     f.allowedTools.value = (s.allowedTools || []).join('\n');
+    f.contextLimit.value = s.contextLimit ?? 60000;
+    f.lean.value = s.lean === false ? '0' : '1';
+    const am = $('#autoModels');
+    am.innerHTML = '';
+    for (const [k, label] of Object.entries(SIZE_TR)) {
+      const cur = (s.autoModels || {})[k] || {};
+      am.append(h(`<label data-size="${k}">${label} iş
+        <span style="display:flex;gap:6px"><select class="am">${MODELS.map(([v, l]) => `<option value="${v}" ${v === cur.model ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <select class="ae">${EFFORTS.map((v) => `<option value="${v}" ${v === cur.effort ? 'selected' : ''}>${v}</option>`).join('')}</select></span></label>`));
+    }
     $('#claudeBinInfo').textContent = `Kullanılan claude: ${S.claudeBin}`;
     const ed = $('#teamEditor');
     ed.innerHTML = '';
-    const models = [['', 'Genel model'], ['claude-opus-5-5', 'Opus 5.5'], ['claude-sonnet-5-5', 'Sonnet 5.5'], ['claude-fable-5-1', 'Fable 5.1'], ['claude-haiku-4-5-20251001', 'Haiku 4.5']];
+    const models = [['', 'Otomatik'], ...MODELS];
     for (const a of s.team) {
       const row = h(`<div class="team-edit" data-id="${a.id}">
         <input type="checkbox" class="en" ${a.enabled ? 'checked' : ''} title="Ofiste olsun">
@@ -378,6 +571,9 @@
       maxHops: Math.max(1, +f.maxHops.value || 12),
       claudePath: f.claudePath.value.trim(),
       allowedTools: f.allowedTools.value.split('\n').map((l) => l.trim()).filter(Boolean),
+      contextLimit: Math.max(0, +f.contextLimit.value || 0),
+      lean: f.lean.value === '1',
+      autoModels: Object.fromEntries([...document.querySelectorAll('#autoModels [data-size]')].map((l) => [l.dataset.size, { model: l.querySelector('.am').value, effort: l.querySelector('.ae').value }])),
       team,
     });
     load(st);
@@ -420,7 +616,7 @@
   input.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) sendMain(e); };
   input.oninput = () => { input.style.height = ''; input.style.height = Math.min(120, input.scrollHeight) + 'px'; };
 
-  api.on('agent', (snap) => { S.agents.set(snap.id, snap); office.updateAgent(snap); patchAgentDetail(snap); });
+  api.on('agent', (snap) => { S.agents.set(snap.id, snap); office.updateAgent(snap); patchAgentDetail(snap); if (B.open) { renderBoardTeam(); renderKpis(); } });
   api.on('message', onMessage);
   api.on('log', ({ id, entry }) => {
     if (id !== S.selected) return;
@@ -433,8 +629,8 @@
     if (stick) log.scrollTop = log.scrollHeight;
   });
   api.on('log-reset', (id) => { if (id === S.selected) { S.logs = []; renderAgentTab(); } });
-  api.on('tasks', (tasks) => { S.tasks = tasks; renderTasks(); });
-  api.on('cost', (c) => { S.cost = c; renderTop(); });
+  api.on('tasks', (tasks) => { S.tasks = tasks; renderBoard(); });
+  api.on('cost', (c) => { S.cost = c; renderTop(); if (B.open) renderKpis(); });
   api.on('paused', (p) => { S.paused = p; renderTop(); });
   api.on('system', (t) => toast(t));
   api.on('reset', () => load());

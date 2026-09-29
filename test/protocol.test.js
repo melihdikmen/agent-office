@@ -21,6 +21,11 @@ test('parses messages, tasks and task updates', () => {
   assert.strictEqual(stripActions(text), 'Plan hazır.');
 });
 
+test('parses task size with aliases', () => {
+  const acts = parseActions('<task assignee="qa" title="A" size="S">x</task><task assignee="qa" title="B" size="büyük">y</task><task assignee="qa" title="C" size="huge">z</task><task assignee="qa" title="D">w</task>');
+  assert.deepStrictEqual(acts.map((a) => a.size), ['s', 'l', null, null]);
+});
+
 test('ignores empty or malformed tags', () => {
   assert.deepStrictEqual(parseActions('<message to="qa"></message><message>hi</message><task-update status="done">x</task-update>'), []);
   assert.strictEqual(parseActions('<task-update id="T-1" status="weird">x</task-update>')[0].status, null);
