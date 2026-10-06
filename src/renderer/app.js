@@ -16,7 +16,7 @@
   const KIND_ICON = { 'claude-code': '✳', 'claude-desktop': '✳', cursor: '⌘', 'cursor-agent': '⌘', 'cursor-cli': '⌘', codex: '◎', gemini: '✦', ollama: '🦙', aider: 'A', opencode: '◇', goose: '🪿', copilot: '◉', amp: '⚡', windsurf: '〰', lmstudio: '▣' };
   const KIND_COLOR = { 'claude-code': '#d97757', 'claude-desktop': '#c15f3c', cursor: '#d9d9de', 'cursor-agent': '#9aa0aa', codex: '#10a37f', gemini: '#4c8bf5', ollama: '#f2f2f2' };
 
-  const S = { settings: null, team: [], agents: new Map(), messages: [], tasks: [], cost: 0, paused: false, selected: null, filter: 'all', radar: [], tab: 'agent', logs: [], openAsk: null, radarFocus: null };
+  const S = { settings: null, team: [], agents: new Map(), messages: [], tasks: [], cost: 0, paused: false, selected: null, filter: 'all', radar: [], tab: 'agent', logs: [], openAsk: null, radarFocus: null, radarFilter: 'all' };
 
   const office = new OfficeCanvas($('#office'), {
     onSelect: (id) => selectAgent(id),
@@ -463,28 +463,58 @@
     try {
       S.radar = await api.scan();
       office.setExternals(S.radar);
-      $('#radarCount').textContent = S.radar.length || '';
+      const waiting = S.radar.filter((x) => x.status === 'waiting').length;
+      $('#radarCount').textContent = waiting ? `⚠ ${waiting}` : S.radar.length || '';
+      $('#radarCount').classList.toggle('warn', !!waiting);
       if (S.tab === 'radar' && !S.openAsk) renderRadar();
     } finally { scanning = false; }
+  }
+
+  const RADAR_TR = { waiting: '⚠ seni bekliyor', active: 'çalışıyor', idle: 'boşta' };
+  const home = (p) => String(p || '').replace(/^\/Users\/[^/]+/, '~');
+
+  // One line saying what the session is doing right now.
+  function radarNow(x) {
+    const s = x.session;
+    const since = x.statusSince ? ` · ${ago(x.statusSince)}` : '';
+    if (x.status === 'waiting') return `<div class="now warn">⚠ Senden onay/yanıt bekliyor${x.waitingFor ? `: ${esc(x.waitingFor)}` : ''}${since}</div>`;
+    const act = s?.activity;
+    if (x.status === 'active') {
+      if (act?.phase === 'tool') return `<div class="now on">⌨ ${esc(act.text)}</div>`;
+      return `<div class="now on">✳ düşünüyor…</div>`;
+    }
+    if (!s) return '';
+    const last = `son işlem ${ago(s.lastActivity)} önce`;
+    return act?.phase === 'replied' ? `<div class="now">✓ Cevabını verdi, yeni mesaj bekliyor · ${last}</div>` : `<div class="now">${last}</div>`;
   }
 
   function renderRadar() {
     const box = $('#tab-radar');
     const keepScroll = box.scrollTop;
     box.innerHTML = '';
-    box.append(h(`<p class="muted" style="margin:0 0 10px;line-height:1.5">Bu bilgisayarda çalışan diğer AI ajanları. Ofisin lobisinde de görünürler. Claude Code oturumlarına, oturumu bozmadan (fork ile) soru sorabilirsin.</p>`));
+    const count = (st) => S.radar.filter((x) => x.status === st).length;
+    const chips = h(`<div class="radar-sum">
+      ${[['all', `Tümü ${S.radar.length}`], ['waiting', `⚠ Bekleyen ${count('waiting')}`], ['active', `Çalışan ${count('active')}`], ['idle', `Boşta ${count('idle')}`]]
+        .map(([k, l]) => `<button data-f="${k}" class="${S.radarFilter === k ? 'on' : ''} ${k === 'waiting' && count('waiting') ? 'warn' : ''}">${l}</button>`).join('')}</div>`);
+    chips.onclick = (e) => { const f = e.target.dataset.f; if (f) { S.radarFilter = f; renderRadar(); } };
+    box.append(chips);
+    const list = S.radar.filter((x) => S.radarFilter === 'all' || x.status === S.radarFilter);
     if (!S.radar.length) box.append(h('<p class="muted">Şu an çalışan başka ajan yok.</p>'));
-    for (const x of S.radar) {
+    else if (!list.length) box.append(h('<p class="muted">Bu durumda ajan yok.</p>'));
+    for (const x of list) {
       const s = x.session;
-      const el = h(`<div class="card radar-item ${S.radarFocus === x.id ? 'flash' : ''}" data-id="${esc(x.id)}">
+      const el = h(`<div class="card radar-item ${x.status} ${S.radarFocus === x.id ? 'flash' : ''}" data-id="${esc(x.id)}">
         <div class="top"><div class="bot" style="background:${KIND_COLOR[x.kind] || '#8e9aaf'}">${KIND_ICON[x.kind] || '🤖'}</div>
-          <div style="min-width:0"><b>${esc(x.label)}</b>${x.project ? ` <span class="muted">· ${esc(x.project)}</span>` : ''}
-            <div class="sub">PID ${x.pid} · ${dur(x.uptime)} · CPU %${x.cpu.toFixed(0)} · ${Math.round(x.rss / 1024)} MB${x.model ? ' · ' + esc(x.model) : ''}${x.headless ? ' · headless' : ''}</div></div>
-          <span class="pill ${x.status}">${x.status === 'active' ? 'aktif' : 'beklemede'}</span></div>
-        ${s?.title ? `<div class="title">🗂 ${esc(s.title)}</div>` : ''}
-        ${x.cwd ? `<div class="sub" style="margin-top:4px">📍 ${esc(x.cwd)}</div>` : ''}
+          <div style="min-width:0"><b>${esc(x.name || x.label)}</b>${x.background ? ' <span class="tag">arka plan</span>' : ''}${x.project ? ` <span class="muted">· ${esc(x.project)}</span>` : ''}
+            <div class="sub">${esc(x.label)}${x.model ? ' · ' + esc(modelName(x.model)) : ''} · ${dur(x.uptime)} · CPU %${x.cpu.toFixed(0)} · ${Math.round(x.rss / 1024)} MB${x.headless ? ' · headless' : ''}</div></div>
+          <span class="pill ${x.status}">${RADAR_TR[x.status] || x.status}</span></div>
+        ${radarNow(x)}
+        ${s?.lastPrompt ? `<div class="ask-line" title="${esc(s.lastPrompt)}">👤 ${esc(s.lastPrompt)}</div>` : s?.title ? `<div class="ask-line">🗂 ${esc(s.title)}</div>` : ''}
+        ${s?.recap?.text ? `<div class="recap">📝 ${esc(s.recap.text)}</div>` : ''}
+        <div class="meta">${x.cwd ? `<span title="${esc(x.cwd)}">📍 ${esc(home(x.cwd))}</span>` : ''}${s?.branch ? `<span>🌿 ${esc(s.branch)}</span>` : ''}${s?.ctx ? `<span title="Son çağrıdaki bağlam">🧠 ${Math.round(s.ctx / 1000)}k</span>` : ''}${s?.permissionMode ? `<span title="İzin modu">🔐 ${esc(s.permissionMode)}</span>` : ''}</div>
         ${s?.recent?.length ? `<details ${S.radarFocus === x.id ? 'open' : ''}><summary class="sub" style="margin-top:6px;cursor:pointer">Son konuşma (${time(s.lastActivity)})</summary><div class="recent">${s.recent.map((r) => `<div class="${r.role}">${r.role === 'user' ? '👤 ' : r.role === 'tool' ? '🔧 ' : '✳ '}${esc(r.text.slice(0, 300))}</div>`).join('')}</div></details>` : ''}
         <div class="acts">
+          ${x.background && x.jobId ? `<button class="btn small ${x.status === 'waiting' ? 'primary' : ''}" data-a="attach" title="claude attach ${esc(x.jobId)}">Terminal'de bağlan</button>` : ''}
           ${s ? '<button class="btn small" data-a="ask">💬 Sor</button><button class="btn small" data-a="term">Terminal\'de fork aç</button>' : ''}
           ${x.cwd ? '<button class="btn small" data-a="open">Klasörü aç</button>' : ''}
           <button class="btn small danger" data-a="kill">Durdur</button>
@@ -493,8 +523,9 @@
         b.onclick = async () => {
           const act = b.dataset.a;
           if (act === 'open') api.openPath(x.cwd);
+          if (act === 'attach') api.extAttach({ cwd: x.cwd, jobId: x.jobId });
           if (act === 'term') api.extTerminal({ cwd: x.cwd, sessionId: s.sessionId });
-          if (act === 'kill') { const r = await api.extKill({ pid: x.pid, label: x.label }); if (r === true) { toast(`${x.label} durduruldu`); setTimeout(scan, 800); } else if (typeof r === 'string') toast(r); }
+          if (act === 'kill') { const r = await api.extKill({ pid: x.pid, label: x.name || x.label }); if (r === true) { toast(`${x.name || x.label} durduruldu`); setTimeout(scan, 800); } else if (typeof r === 'string') toast(r); }
           if (act === 'ask') openAsk(el, x);
         };
       });

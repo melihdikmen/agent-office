@@ -114,7 +114,24 @@ async function createWindow() {
   ipcMain.handle('open-path', (_e, p) => p && shell.openPath(p));
 
   // ---- radar: agents running elsewhere on this machine ---------------------
-  ipcMain.handle('scan', () => scanner.scan({ excludePids: manager.pids() }));
+  // Notify when another session starts waiting on the owner (permission prompt,
+  // dialog). The window's own scan only runs while it's visible, so poll here too.
+  const waiting = new Set();
+  const checkWaiting = (list) => {
+    const now = new Set();
+    for (const x of list) {
+      if (x.status !== 'waiting') continue;
+      now.add(x.id);
+      if (waiting.has(x.id) || !Notification.isSupported() || (win && win.isFocused())) continue;
+      new Notification({ title: `${x.name || x.label} seni bekliyor`, body: `${x.project || ''}${x.waitingFor ? ` · ${x.waitingFor}` : ''}` }).show();
+    }
+    waiting.clear();
+    now.forEach((id) => waiting.add(id));
+    return list;
+  };
+  const radarScan = () => scanner.scan({ excludePids: manager.pids() }).then(checkWaiting);
+  ipcMain.handle('scan', radarScan);
+  setInterval(() => { if (!win || win.isDestroyed() || !win.isFocused()) radarScan().catch(() => {}); }, 15000);
 
   ipcMain.handle('ext-kill', async (_e, { pid, label }) => {
     const r = await dialog.showMessageBox(win, {
@@ -131,6 +148,15 @@ async function createWindow() {
     const cmd = `cd ${q(cwd || os.homedir())} && ${q(runtime.claudeBin)}${sessionId ? ` --resume ${sessionId} --fork-session` : ''}`;
     const script = `tell application "Terminal" to do script ${JSON.stringify(cmd)}\ntell application "Terminal" to activate`;
     execFile('osascript', ['-e', script]);
+    return true;
+  });
+
+  // Open a background Claude Code session in Terminal (claude attach <id>).
+  ipcMain.handle('ext-attach', (_e, { cwd, jobId }) => {
+    if (!/^[0-9a-z-]{4,40}$/i.test(jobId || '')) return false;
+    const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+    const cmd = `cd ${q(cwd || os.homedir())} && ${q(runtime.claudeBin)} attach ${jobId}`;
+    execFile('osascript', ['-e', `tell application "Terminal" to do script ${JSON.stringify(cmd)}\ntell application "Terminal" to activate`]);
     return true;
   });
 

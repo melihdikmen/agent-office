@@ -6,7 +6,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const { summarizeToolUse } = require('./protocol');
+
 const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects');
+// Claude Code writes one file per running process here: session id, cwd, name and
+// its own status (busy / idle / waiting + what it waits for). Internal format, so
+// everything below falls back to heuristics when a field is missing.
+const CLAUDE_SESSIONS = path.join(os.homedir(), '.claude', 'sessions');
 
 const MATCHERS = [
   {
@@ -93,6 +99,43 @@ function textOf(content) {
   return content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
 }
 
+function readRegistry() {
+  const reg = new Map();
+  let files = [];
+  try { files = fs.readdirSync(CLAUDE_SESSIONS).filter((f) => /^\d+\.json$/.test(f)); } catch { return reg; }
+  for (const f of files) {
+    try {
+      const r = JSON.parse(fs.readFileSync(path.join(CLAUDE_SESSIONS, f), 'utf8'));
+      if (r && r.pid) reg.set(+r.pid, r);
+    } catch { /* being rewritten */ }
+  }
+  return reg;
+}
+
+// What the session is doing right now, from the tail of its transcript.
+function currentActivity(entries) {
+  const conv = entries.filter((e) => (e.type === 'user' || e.type === 'assistant') && !e.isSidechain && !e.isMeta);
+  const last = conv[conv.length - 1];
+  if (!last) return null;
+  const done = new Set();
+  for (const e of conv) {
+    if (e.type !== 'user' || !Array.isArray(e.message?.content)) continue;
+    for (const b of e.message.content) if (b.type === 'tool_result') done.add(b.tool_use_id);
+  }
+  for (let i = conv.length - 1; i >= 0; i--) {
+    const e = conv[i];
+    if (e.type !== 'assistant' || !Array.isArray(e.message?.content)) continue;
+    const pending = e.message.content.filter((b) => b.type === 'tool_use' && !done.has(b.id)).pop();
+    if (pending) return { phase: 'tool', text: summarizeToolUse(pending.name, pending.input) };
+    break;
+  }
+  if (last.type === 'assistant') {
+    const hasText = (last.message?.content || []).some?.((b) => b.type === 'text' && b.text.trim());
+    return hasText ? { phase: 'replied', text: '' } : { phase: 'thinking', text: '' };
+  }
+  return { phase: 'thinking', text: '' };
+}
+
 const summaryCache = new Map(); // file -> { mtime, data }
 
 function summarizeSession(file) {
@@ -105,7 +148,19 @@ function summarizeSession(file) {
   const tail = parse(readSlice(file, true, 256 * 1024));
   const isHuman = (e) => e.type === 'user' && !e.isMeta && textOf(e.message?.content).trim() && !/^<(command|local-command|system-reminder)/.test(textOf(e.message?.content).trim());
   let title = null;
-  for (const e of [...head, ...tail]) if ((e.type === 'summary' && e.summary) || e.type === 'custom-title') title = e.summary || e.customTitle || e.title || title;
+  let lastPrompt = null;
+  let recap = null;
+  let permissionMode = null;
+  for (const e of [...head, ...tail]) {
+    if (e.type === 'custom-title' || e.type === 'ai-title' || e.type === 'agent-name' || (e.type === 'summary' && e.summary)) {
+      title = e.customTitle || e.aiTitle || e.agentName || e.summary || e.title || title;
+    } else if (e.type === 'last-prompt' && e.lastPrompt) lastPrompt = e.lastPrompt;
+    else if (e.type === 'system' && e.subtype === 'away_summary' && e.content) recap = { text: String(e.content).replace(/\s*\(disable recaps[^)]*\)\s*$/, ''), ts: e.timestamp };
+    else if (e.type === 'permission-mode' && e.permissionMode) permissionMode = e.permissionMode;
+  }
+  const lastAssistant = [...tail].reverse().find((e) => e.type === 'assistant' && !e.isSidechain && e.message?.model);
+  const usage = lastAssistant?.message?.usage;
+  const branch = [...tail].reverse().find((e) => e.gitBranch)?.gitBranch;
   const firstUser = head.find(isHuman);
   const recent = [];
   for (const e of tail) {
@@ -126,6 +181,13 @@ function summarizeSession(file) {
     recent: recent.slice(-8),
     lastActivity: stat.mtimeMs,
     lastRole: last?.type,
+    lastPrompt: lastPrompt ? lastPrompt.slice(0, 400) : [...recent].reverse().find((r) => r.role === 'user')?.text || null,
+    recap,
+    permissionMode,
+    model: lastAssistant?.message?.model || null,
+    ctx: usage ? (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0) : 0,
+    branch: branch && branch !== 'HEAD' ? branch : null,
+    activity: currentActivity(tail),
   };
   summaryCache.set(file, { mtime: stat.mtimeMs, data });
   return data;
@@ -147,17 +209,28 @@ async function scan({ excludePids = [] } = {}) {
     return p.pid === process.pid;
   };
 
+  const registry = readRegistry();
+  const claude = MATCHERS[0];
   const found = [];
   for (const p of procs) {
+    if (isExcluded(p)) continue;
+    const reg = registry.get(p.pid);
+    if (reg) {
+      // Pre-warmed spare processes have no work yet; claimed ones are real background agents.
+      if (reg.spare) continue;
+      found.push({ ...p, kind: 'claude-code', label: 'Claude Code', name: reg.name || null, reg });
+      continue;
+    }
     const mt = MATCHERS.find((x) => x.test(p.cmd));
-    if (!mt || isExcluded(p)) continue;
+    if (!mt) continue;
     // A matched process whose parent is the same kind is a sub-process of the same agent.
     const parent = byPid.get(p.ppid);
     if (parent && mt.test(parent.cmd) && mt.kind !== 'cursor-agent') continue;
+    if (mt === claude && parent && registry.has(parent.pid)) continue;
     found.push({ ...p, kind: mt.kind, label: mt.label, name: mt.name?.(p.cmd) || null });
   }
 
-  const cliPids = found.filter((f) => !['claude-desktop', 'cursor', 'windsurf', 'lmstudio', 'cursor-agent'].includes(f.kind)).map((f) => f.pid);
+  const cliPids = found.filter((f) => !f.reg?.cwd && !['claude-desktop', 'cursor', 'windsurf', 'lmstudio', 'cursor-agent'].includes(f.kind)).map((f) => f.pid);
   if (cliPids.length) {
     const lsof = await run('lsof', ['-a', '-d', 'cwd', '-Fn', '-p', cliPids.join(',')]);
     let cur = null;
@@ -169,20 +242,32 @@ async function scan({ excludePids = [] } = {}) {
 
   const now = Date.now();
   for (const f of found) {
+    const reg = f.reg;
+    delete f.reg;
+    if (reg?.cwd) f.cwd = reg.cwd;
     f.model = argValue(f.cmd, '--model');
     f.headless = /\s(-p|--print)(\s|$)/.test(f.cmd);
+    f.background = !!reg && /^(bg|background)$/.test(reg.kind || '');
+    f.jobId = reg ? reg.jobId || (f.background ? String(reg.sessionId || '').slice(0, 8) : null) : null;
     if (f.kind === 'claude-code') {
-      const file = findSessionFile(f.cmd, f.cwd, now - f.uptime * 1000);
+      const cmd = reg?.sessionId ? `--resume ${reg.sessionId}` : f.cmd;
+      const file = findSessionFile(cmd, f.cwd, now - f.uptime * 1000);
       const s = file && summarizeSession(file);
-      if (s) { f.session = s; f.cwd = f.cwd || s.cwd; }
+      if (s) { f.session = s; f.cwd = f.cwd || s.cwd; f.model = f.model || s.model; }
     }
     const recentWrite = f.session && now - f.session.lastActivity < 20000;
-    f.status = recentWrite || f.cpu > 8 ? 'active' : 'idle';
+    // Prefer Claude Code's own status; fall back to transcript writes and CPU.
+    if (reg?.status === 'waiting') { f.status = 'waiting'; f.waitingFor = reg.waitingFor || null; }
+    else if (reg?.status === 'busy') f.status = 'active';
+    else if (reg?.status === 'idle') f.status = 'idle';
+    else f.status = recentWrite || f.cpu > 8 ? 'active' : 'idle';
+    f.statusSince = reg?.statusUpdatedAt || null;
     f.project = f.cwd ? path.basename(f.cwd) : f.name || null;
     f.id = `${f.kind}:${f.pid}`;
     delete f.cmd; // don't ship full argv (may contain tokens) to the renderer
   }
-  return found.sort((a, b) => a.kind.localeCompare(b.kind) || b.uptime - a.uptime);
+  const rank = { waiting: 0, active: 1, idle: 2 };
+  return found.sort((a, b) => rank[a.status] - rank[b.status] || a.kind.localeCompare(b.kind) || b.uptime - a.uptime);
 }
 
-module.exports = { scan, parseEtime, MATCHERS };
+module.exports = { scan, parseEtime, currentActivity, MATCHERS };

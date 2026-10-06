@@ -409,8 +409,14 @@
         g.fillRect(x - 6, y - 13 + bob, 3, 3); g.fillRect(x + 3, y - 13 + bob, 3, 3);
         this.round(g, x - 10, y + bob, 20, 14, 5, col);
         if (this.hover?.id === a.id) { g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.strokeRect(x - 16, y - 32, 32, 50); }
-        g.fillStyle = 'rgba(230,235,245,0.85)'; g.font = '600 9px -apple-system, sans-serif'; g.textAlign = 'center';
-        g.fillText(clip(a.project || a.label, 11), x, y + 28);
+        if (a.status === 'waiting') {
+          // Needs the owner: pulsing "!" bubble above the head.
+          const k = 0.65 + 0.35 * Math.sin(this.t * 6 + i);
+          g.fillStyle = `rgba(255,209,102,${k})`; g.beginPath(); g.arc(x + 13, y - 34, 7, 0, 7); g.fill();
+          g.fillStyle = '#1b1e26'; g.font = '800 10px -apple-system, sans-serif'; g.textAlign = 'center'; g.fillText('!', x + 13, y - 30.5);
+        }
+        g.fillStyle = a.status === 'waiting' ? '#ffd166' : 'rgba(230,235,245,0.85)'; g.font = '600 9px -apple-system, sans-serif'; g.textAlign = 'center';
+        g.fillText(clip(a.name || a.project || a.label, 10), x, y + 28);
       });
       if (this.externals.length > LOBBY.max) {
         g.fillStyle = 'rgba(255,255,255,0.6)'; g.font = '600 11px sans-serif'; g.textAlign = 'right';
