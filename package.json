@@ -19,6 +19,7 @@
   },
   "build": {
     "appId": "com.melihdikmen.agentoffice",
+    "icon": "build/icon.png",
     "files": [
       "src/**/*",
       "out/**/*",
@@ -43,6 +44,7 @@
   "devDependencies": {
     "@electron/rebuild": "^4.2.1",
     "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2"
   },
   "dependencies": {
