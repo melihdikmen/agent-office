@@ -220,7 +220,12 @@ class Workers extends EventEmitter {
     const term = this.terminals.get(this.termId(w.id));
     const running = !!term && term.exited === null;
     const reg = running ? this.rt.scanner.registryEntry(term.pid) : null;
-    if (reg?.sessionId && reg.sessionId !== w.sessionId) { w.sessionId = reg.sessionId; this.store.save(); }
+    if (reg?.sessionId && reg.sessionId !== w.sessionId) {
+      // --resume gives the conversation a new session id; remember the old one so a leftover
+      // process of it is not mistaken for an outside session (a "guest") later.
+      if (w.sessionId) w.pastSessions = [...(w.pastSessions || []).filter((x) => x !== w.sessionId), w.sessionId].slice(-20);
+      w.sessionId = reg.sessionId; this.store.save();
+    }
     const file = w.sessionId ? this.rt.scanner.sessionFile(w.sessionId, w.cwd || ws.dir) : null;
     const s = file ? this.rt.scanner.summarizeSession(file) : null;
     const cost = file ? this.rt.scanner.costState(file) : null;

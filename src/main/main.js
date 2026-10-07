@@ -133,7 +133,12 @@ async function createWindow() {
     // Only sessions opened in this office's folder (or below it) are guests here.
     const dir = activeWs()?.dir;
     const inside = (cwd) => !!dir && !!cwd && (cwd === dir || cwd.startsWith(dir.endsWith('/') ? dir : `${dir}/`));
-    guests = found.filter((a) => a.kind === 'claude-code' && a.sessionId && inside(a.cwd) && !store.workspaces.some((w) => w.workers.some((x) => x.sessionId === a.sessionId)))
+    const ours = (id) => store.workspaces.some((w) => w.workers.some((x) => x.sessionId === id || x.pastSessions?.includes(id)));
+    // A worker's earlier incarnation that outlived the app: stop it, the live one has the conversation now.
+    for (const a of found) {
+      if (a.pid && a.sessionId && store.workspaces.some((w) => w.workers.some((x) => x.sessionId !== a.sessionId && x.pastSessions?.includes(a.sessionId)))) { try { process.kill(a.pid, 'SIGTERM'); } catch { /* gone */ } }
+    }
+    guests = found.filter((a) => a.kind === 'claude-code' && a.sessionId && inside(a.cwd) && !ours(a.sessionId))
       .map((a) => ({ id: `g:${a.sessionId}`, sessionId: a.sessionId, pid: a.pid, jobId: a.jobId, background: a.background, name: a.name || a.session?.title || a.sessionId.slice(0, 8), project: a.project, cwd: a.cwd,
         status: a.status === 'active' ? 'working' : a.status, waitingFor: a.waitingFor, activity: a.session?.activity || null, lastPrompt: a.session?.lastPrompt || null, recap: a.session?.recap?.text || null,
         model: a.model, ctx: a.session?.ctx || 0, seed: a.seed, uptime: a.uptime, headless: a.headless }));
