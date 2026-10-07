@@ -1,0 +1,33 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert');
+const { Workers } = require('../src/main/workers');
+const { Store } = require('../src/main/store');
+const { Memory } = require('../src/main/memory');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+test('adopting a guest keeps its conversation and folder, and briefs it on first start', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'office-'));
+  const store = new Store(dir);
+  const ws = store.createWorkspace({ name: 'Demo', dir });
+  const typed = [];
+  let running = false;
+  let registered = false;
+  const terminals = { get: () => (running ? { exited: null, pid: 1 } : null), create: (o) => { running = true; typed.push(['start', o.cwd, o.args.includes('--resume')]); return o; }, paste: (id, t) => typed.push(['msg', t]), write: () => {}, kill: () => true, snapshot: (x) => x };
+  const scanner = { registryEntry: () => (registered ? { status: 'idle' } : null), sessionFile: (id) => (id === 'sess-1' ? '/x/sess-1.jsonl' : null), summarizeSession: () => null, costState: () => null };
+  const workers = new Workers(store, terminals, new Memory(store), { claudeBin: 'claude', mcp: { urlFor: () => 'u', toolNames: [] }, scanner });
+  const w = workers.adopt(ws, { name: 'hopbot-platformer', sessionId: 'sess-1', cwd: '/other/proj', model: 'claude-opus-5-5' }, { role: 'QA' });
+  assert.strictEqual(w.cwd, '/other/proj');
+  assert.strictEqual(w.model, 'opus');
+  workers.start(ws, w.id);
+  assert.deepStrictEqual(typed[0], ['start', '/other/proj', true]);
+  workers.flush(ws);
+  assert.strictEqual(typed.length, 1, 'briefing waits until Claude is up');
+  registered = true;
+  workers.flush(ws);
+  assert.match(typed[1][1], /ofisine katıldın/);
+  assert.match(typed[1][1], /You are hopbot-platformer, the QA/);
+  assert.strictEqual(w.briefed, true);
+});

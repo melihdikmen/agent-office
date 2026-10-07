@@ -1,24 +1,56 @@
 {
   "name": "agent-office",
   "productName": "Agent Office",
-  "version": "0.1.0",
-  "description": "Visual office to run and control a team of AI agents (PM, Dev, QA...) on your machine",
+  "version": "0.2.0",
+  "description": "A live 3D office showing every AI agent running on your machine, with teams you can build from them",
   "main": "src/main/main.js",
   "author": "Melih Dikmen",
   "license": "MIT",
   "scripts": {
-    "start": "electron .",
-    "check": "node --check src/main/main.js && node --check src/main/agents.js && node --check src/main/scanner.js && node --check src/main/store.js && node --check src/main/protocol.js && node --test test/*.test.js",
-    "dist": "electron-builder --mac"
+    "build": "esbuild src/renderer/main.js --bundle --format=iife --target=chrome130 --outfile=out/renderer.js --log-level=warning",
+    "start": "npm run build && electron .",
+    "check": "for f in src/main/*.js; do node --check $f || exit 1; done && npm run build && node --test \"test/*.test.js\"",
+    "shot": "npm run build && electron scripts/shot.js",
+    "dist": "npm run build && electron-builder --mac",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:all": "npm run build && electron-builder --mac --win --linux"
   },
   "build": {
     "appId": "com.melihdikmen.agentoffice",
+    "files": [
+      "src/**/*",
+      "out/**/*",
+      "package.json"
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "category": "Development",
+      "target": "AppImage"
     }
   },
   "devDependencies": {
-    "electron": "^44.4.5"
+    "@electron/rebuild": "^4.2.1",
+    "electron": "^44.4.5",
+    "esbuild": "^0.28.2"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "^1.1.0",
+    "zod": "^4.6.5"
   }
 }

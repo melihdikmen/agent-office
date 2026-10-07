@@ -1,12 +1,13 @@
 'use strict';
-// Detects AI agents running on this machine (Claude Code sessions, Claude Desktop,
-// Cursor, Codex, Gemini CLI, Aider, Ollama, ...) from the process table.
+// Detects AI agents running on this machine (Claude Code sessions, Cursor agents,
+// Codex, Gemini CLI, Aider, Ollama, ...) from the process table. The Claude Desktop
+// and Cursor apps themselves are left out: they are editors, not agents at work.
 const { execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { summarizeToolUse } = require('./protocol');
+const crypto = require('crypto');
 
 const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects');
 // Claude Code writes one file per running process here: session id, cwd, name and
@@ -20,13 +21,11 @@ const MATCHERS = [
     test: (c) => (/(^|\/)claude(\s|$)|\/claude\/versions\/[\w.-]+(\s|$)|ClaudeCode\.app\/Contents\/MacOS\/claude|@anthropic-ai\/claude-code\/cli\.js/.test(c))
       && !/--bg-pty-host|bg-pty-host|daemon run|--bg-spare|chrome-native-host|\bmcp\b/.test(c),
   },
-  { kind: 'claude-desktop', label: 'Claude Desktop', test: (c) => /\/Claude\.app\/Contents\/MacOS\/Claude(\s|$)/.test(c) },
   {
     kind: 'cursor-agent', label: 'Cursor Agent',
     test: (c) => /extension-host \(agent-exec\)/.test(c),
     name: (c) => (c.match(/\(agent-exec\)\s+(.+?)\s*\[/) || [])[1],
   },
-  { kind: 'cursor', label: 'Cursor', test: (c) => /\/Cursor\.app\/Contents\/MacOS\/Cursor(\s|$)/.test(c) },
   { kind: 'cursor-cli', label: 'Cursor CLI', test: (c) => /(^|\/)cursor-agent(\s|$)/.test(c) },
   { kind: 'codex', label: 'Codex CLI', test: (c) => /(^|\/)codex(\s|$)|@openai\/codex/.test(c) },
   { kind: 'gemini', label: 'Gemini CLI', test: (c) => /(^|\/)gemini(\s|$)|@google\/gemini-cli/.test(c) },
@@ -39,6 +38,22 @@ const MATCHERS = [
   { kind: 'ollama', label: 'Ollama', test: (c) => /(^|\/)ollama (serve|runner)/.test(c) },
   { kind: 'lmstudio', label: 'LM Studio', test: (c) => /\/LM Studio\.app\/Contents\/MacOS\/LM Studio(\s|$)/.test(c) },
 ];
+
+// Short human label for a tool call, e.g. "Bash: npm test" or "Edit world/Hazards.ts".
+function summarizeToolUse(name, input = {}) {
+  const short = (s, n = 60) => {
+    s = String(s || '').replace(/\s+/g, ' ').trim();
+    return s.length > n ? s.slice(0, n - 1) + '…' : s;
+  };
+  const file = input.file_path || input.notebook_path || input.path;
+  if (file) return `${name} ${short(String(file).split('/').slice(-2).join('/'))}`;
+  if (input.command) return `${name}: ${short(input.command)}`;
+  if (input.pattern) return `${name} "${short(input.pattern, 40)}"`;
+  if (input.url) return `${name} ${short(input.url)}`;
+  if (input.query) return `${name} "${short(input.query, 40)}"`;
+  if (input.description) return `${name}: ${short(input.description)}`;
+  return name;
+}
 
 function run(cmd, args) {
   return new Promise((resolve) => {
@@ -59,7 +74,7 @@ function argValue(cmd, flag) {
 
 function projectDirFor(cwd) { return path.join(CLAUDE_PROJECTS, cwd.replace(/[^a-zA-Z0-9]/g, '-')); }
 
-function findSessionFile(cmd, cwd, startedAt) {
+function findSessionFile(cmd, cwd, startedAt, exact = false) {
   const resume = argValue(cmd, '--resume') || argValue(cmd, '-r') || argValue(cmd, '--session-id');
   if (resume && resume.endsWith('.jsonl') && fs.existsSync(resume)) return resume;
   if (resume && /^[0-9a-f-]{36}$/.test(resume)) {
@@ -71,7 +86,8 @@ function findSessionFile(cmd, cwd, startedAt) {
       }
     } catch { /* ignore */ }
   }
-  if (!cwd) return null;
+  // A known session id with no transcript yet is a fresh session; don't guess another file.
+  if (!cwd || exact) return null;
   try {
     const dir = projectDirFor(cwd);
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl'))
@@ -99,6 +115,46 @@ function textOf(content) {
   return content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
 }
 
+// One process's entry in Claude Code's session registry (null when it isn't a session).
+function registryEntry(pid) {
+  try { return JSON.parse(fs.readFileSync(path.join(CLAUDE_SESSIONS, `${pid}.json`), 'utf8')); } catch { return null; }
+}
+
+// Transcript file of a known session id, looked up by its project folder first.
+function sessionFile(sessionId, cwd) {
+  if (!/^[0-9a-f-]{36}$/.test(sessionId || '')) return null;
+  if (cwd) { const f = path.join(projectDirFor(cwd), `${sessionId}.jsonl`); if (fs.existsSync(f)) return f; }
+  try {
+    for (const d of fs.readdirSync(CLAUDE_PROJECTS)) {
+      const f = path.join(CLAUDE_PROJECTS, d, `${sessionId}.jsonl`);
+      if (fs.existsSync(f)) return f;
+    }
+  } catch { /* no projects dir */ }
+  return null;
+}
+
+// Claude Code writes a running cost line into the transcript; the last one is the session total.
+const costCache = new Map();
+function costState(file) {
+  let stat;
+  try { stat = fs.statSync(file); } catch { return null; }
+  const cached = costCache.get(file);
+  if (cached && cached.mtime === stat.mtimeMs) return cached.data;
+  // Transcripts can carry huge attachment lines; walk back in chunks until the line shows up.
+  let data = null;
+  for (let bytes = 512 * 1024; bytes <= 16 * 1024 * 1024 && bytes / 2 < stat.size + 512 * 1024; bytes *= 2) {
+    const tail = readSlice(file, true, bytes);
+    const i = tail.lastIndexOf('"type":"cost-state"');
+    if (i < 0) { if (bytes >= stat.size) break; continue; }
+    const start = tail.lastIndexOf('\n', i) + 1;
+    const end = tail.indexOf('\n', i);
+    try { data = JSON.parse(tail.slice(start, end < 0 ? undefined : end)); } catch { data = null; }
+    break;
+  }
+  costCache.set(file, { mtime: stat.mtimeMs, data });
+  return data;
+}
+
 function readRegistry() {
   const reg = new Map();
   let files = [];
@@ -112,28 +168,50 @@ function readRegistry() {
   return reg;
 }
 
-// What the session is doing right now, from the tail of its transcript.
+const HELPER_TOOLS = new Set(['Agent', 'Task']);
+
+// What the session is doing right now, from the tail of its transcript:
+// phase tool | thinking | replied, the running tool, and how many subagents it waits on.
 function currentActivity(entries) {
   const conv = entries.filter((e) => (e.type === 'user' || e.type === 'assistant') && !e.isSidechain && !e.isMeta);
   const last = conv[conv.length - 1];
   if (!last) return null;
   const done = new Set();
-  for (const e of conv) {
-    if (e.type !== 'user' || !Array.isArray(e.message?.content)) continue;
-    for (const b of e.message.content) if (b.type === 'tool_result') done.add(b.tool_use_id);
-  }
-  for (let i = conv.length - 1; i >= 0; i--) {
-    const e = conv[i];
+  let turnStart = 0;
+  conv.forEach((e, i) => {
+    if (e.type !== 'user') return;
+    const c = e.message?.content;
+    const results = Array.isArray(c) ? c.filter((b) => b.type === 'tool_result') : [];
+    results.forEach((b) => done.add(b.tool_use_id));
+    if (!results.length) turnStart = i;       // a human prompt starts a new turn
+  });
+  const pending = [];
+  for (const e of conv.slice(turnStart)) {
     if (e.type !== 'assistant' || !Array.isArray(e.message?.content)) continue;
-    const pending = e.message.content.filter((b) => b.type === 'tool_use' && !done.has(b.id)).pop();
-    if (pending) return { phase: 'tool', text: summarizeToolUse(pending.name, pending.input) };
-    break;
+    for (const b of e.message.content) if (b.type === 'tool_use' && !done.has(b.id)) pending.push(b);
   }
+  const helpers = pending.filter((b) => HELPER_TOOLS.has(b.name)).length;
+  const tool = pending.filter((b) => !HELPER_TOOLS.has(b.name)).pop() || pending[pending.length - 1];
+  if (tool) return { phase: 'tool', tool: tool.name, text: summarizeToolUse(tool.name, tool.input), helpers };
   if (last.type === 'assistant') {
     const hasText = (last.message?.content || []).some?.((b) => b.type === 'text' && b.text.trim());
-    return hasText ? { phase: 'replied', text: '' } : { phase: 'thinking', text: '' };
+    return { phase: hasText ? 'replied' : 'thinking', tool: null, text: '', helpers: 0 };
   }
-  return { phase: 'thinking', text: '' };
+  return { phase: 'thinking', tool: null, text: '', helpers: 0 };
+}
+
+// Messages this session sent to other sessions (SendMessage), newest last.
+function sentMessages(entries) {
+  const out = [];
+  for (const e of entries) {
+    if (e.type !== 'assistant' || e.isSidechain || !Array.isArray(e.message?.content)) continue;
+    for (const b of e.message.content) {
+      if (b.type !== 'tool_use' || b.name !== 'SendMessage' || !b.input?.to) continue;
+      const text = String(b.input.summary || b.input.message || '').replace(/\s+/g, ' ').trim();
+      out.push({ id: b.id, to: String(b.input.to), text: text.slice(0, 200), ts: Date.parse(e.timestamp) || 0 });
+    }
+  }
+  return out.slice(-8);
 }
 
 const summaryCache = new Map(); // file -> { mtime, data }
@@ -188,6 +266,7 @@ function summarizeSession(file) {
     ctx: usage ? (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0) : 0,
     branch: branch && branch !== 'HEAD' ? branch : null,
     activity: currentActivity(tail),
+    sends: sentMessages(tail),
   };
   summaryCache.set(file, { mtime: stat.mtimeMs, data });
   return data;
@@ -230,7 +309,7 @@ async function scan({ excludePids = [] } = {}) {
     found.push({ ...p, kind: mt.kind, label: mt.label, name: mt.name?.(p.cmd) || null });
   }
 
-  const cliPids = found.filter((f) => !f.reg?.cwd && !['claude-desktop', 'cursor', 'windsurf', 'lmstudio', 'cursor-agent'].includes(f.kind)).map((f) => f.pid);
+  const cliPids = found.filter((f) => !f.reg?.cwd && !['windsurf', 'lmstudio', 'cursor-agent'].includes(f.kind)).map((f) => f.pid);
   if (cliPids.length) {
     const lsof = await run('lsof', ['-a', '-d', 'cwd', '-Fn', '-p', cliPids.join(',')]);
     let cur = null;
@@ -251,7 +330,7 @@ async function scan({ excludePids = [] } = {}) {
     f.jobId = reg ? reg.jobId || (f.background ? String(reg.sessionId || '').slice(0, 8) : null) : null;
     if (f.kind === 'claude-code') {
       const cmd = reg?.sessionId ? `--resume ${reg.sessionId}` : f.cmd;
-      const file = findSessionFile(cmd, f.cwd, now - f.uptime * 1000);
+      const file = findSessionFile(cmd, f.cwd, now - f.uptime * 1000, !!reg?.sessionId);
       const s = file && summarizeSession(file);
       if (s) { f.session = s; f.cwd = f.cwd || s.cwd; f.model = f.model || s.model; }
     }
@@ -262,12 +341,15 @@ async function scan({ excludePids = [] } = {}) {
     else if (reg?.status === 'idle') f.status = 'idle';
     else f.status = recentWrite || f.cpu > 8 ? 'active' : 'idle';
     f.statusSince = reg?.statusUpdatedAt || null;
-    f.project = f.cwd ? path.basename(f.cwd) : f.name || null;
-    f.id = `${f.kind}:${f.pid}`;
+    f.project = f.cwd ? path.basename(f.cwd) : null;
+    f.sessionId = reg?.sessionId || f.session?.sessionId || null;
+    // Stable across restarts of the same session, so its character keeps its seat and looks.
+    f.id = f.sessionId ? `s:${f.sessionId}` : `${f.kind}:${f.pid}`;
+    f.seed = crypto.createHash('md5').update(f.sessionId || `${f.kind}:${f.name || ''}`).digest().readUInt32LE(0);
     delete f.cmd; // don't ship full argv (may contain tokens) to the renderer
   }
   const rank = { waiting: 0, active: 1, idle: 2 };
   return found.sort((a, b) => rank[a.status] - rank[b.status] || a.kind.localeCompare(b.kind) || b.uptime - a.uptime);
 }
 
-module.exports = { scan, parseEtime, currentActivity, MATCHERS };
+module.exports = { scan, parseEtime, currentActivity, sentMessages, summarizeToolUse, registryEntry, sessionFile, summarizeSession, costState, MATCHERS };

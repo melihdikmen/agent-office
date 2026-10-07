@@ -1,76 +1,62 @@
 'use strict';
-// Small JSON store: global settings + per-project state (sessions, messages, tasks).
+// Persistent state of the office: workspaces, their workers, task board, reports,
+// floor layout and the owner's settings. One JSON file, written atomically.
 const fs = require('fs');
 const path = require('path');
-const { DEFAULT_TEAM } = require('./protocol');
+const crypto = require('crypto');
 
-const MAX_MESSAGES = 600;
-
-const DEFAULT_SETTINGS = {
-  projectDir: '',
-  model: '',                    // '' = automatic: picked per turn from task size (autoModels)
-  // Task size → model + effort. Plain messages count as "m".
-  autoModels: {
-    s: { model: 'claude-haiku-4-5-20251001', effort: 'low' },
-    m: { model: 'claude-sonnet-5-5', effort: 'medium' },
-    l: { model: 'claude-opus-5-5', effort: 'high' },
-  },
-  contextLimit: 60000,          // tokens; a session above this starts fresh next turn (0 = never)
-  lean: true,                   // skip skills and user/global MCP servers in agent sessions
-  permissionMode: 'acceptEdits',
-  language: 'Turkish',
-  maxConcurrent: 3,
-  maxHops: 12,                  // agent→agent chain depth before messages are held for the owner
-  claudePath: '',
-  // Headless agents can't answer permission prompts; these commands run without asking.
-  allowedTools: ['Bash(npm *)', 'Bash(npx *)', 'Bash(yarn *)', 'Bash(pnpm *)', 'Bash(node *)', 'Bash(git status*)', 'Bash(git diff*)', 'Bash(git log*)', 'Bash(ls *)', 'Bash(cat *)'],
-  team: DEFAULT_TEAM,
-};
+const id = (n = 8) => crypto.randomBytes(n).toString('hex').slice(0, n);
 
 class Store {
-  constructor(dir) {
-    this.file = path.join(dir, 'state.json');
-    this.data = { settings: { ...DEFAULT_SETTINGS }, projects: {} };
+  constructor(dir, { readonly = false } = {}) {
+    this.dir = dir;
+    this.file = path.join(dir, 'office.json');
+    this.readonly = readonly;
+    this.data = { version: 2, workspaces: [], activeWorkspace: null, handsOff: false, integrations: {}, ui: {} };
     try {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      this.data.settings = { ...DEFAULT_SETTINGS, ...raw.settings };
-      this.data.projects = raw.projects || {};
-      // Keep roles added in newer versions.
-      for (const role of DEFAULT_TEAM) {
-        if (!this.data.settings.team.some((a) => a.id === role.id)) this.data.settings.team.push(role);
-      }
+      if (raw.version === 2) Object.assign(this.data, raw);
     } catch { /* first run */ }
     this.timer = null;
   }
 
-  get settings() { return this.data.settings; }
+  get workspaces() { return this.data.workspaces; }
+  workspace(wid) { return this.workspaces.find((w) => w.id === wid) || null; }
+  get active() { return this.workspace(this.data.activeWorkspace) || this.workspaces[0] || null; }
 
-  updateSettings(patch) {
-    Object.assign(this.data.settings, patch);
+  createWorkspace({ name, dir }) {
+    const ws = {
+      id: id(), name: String(name || '').trim() || path.basename(dir || '') || 'Ofis', dir: dir || '',
+      lead: null, workers: [], tasks: [], reports: [], nextTask: 1, layout: null, created: Date.now(),
+    };
+    this.workspaces.push(ws);
+    if (!this.data.activeWorkspace) this.data.activeWorkspace = ws.id;
     this.save();
-    return this.data.settings;
+    return ws;
   }
 
-  project(dir = this.settings.projectDir) {
-    const key = dir || '(none)';
-    if (!this.data.projects[key]) this.data.projects[key] = { sessions: {}, messages: [], tasks: [], nextTask: 1, cost: 0 };
-    return this.data.projects[key];
+  removeWorkspace(wid) {
+    this.data.workspaces = this.workspaces.filter((w) => w.id !== wid);
+    if (this.data.activeWorkspace === wid) this.data.activeWorkspace = this.workspaces[0]?.id || null;
+    this.save();
   }
 
-  pushMessage(msg) {
-    const p = this.project();
-    p.messages.push(msg);
-    if (p.messages.length > MAX_MESSAGES) p.messages.splice(0, p.messages.length - MAX_MESSAGES);
-    this.save();
+  // Per-workspace folder for things workers write (memory files, reports).
+  workspaceDir(wid) {
+    const d = path.join(this.dir, 'workspaces', wid);
+    fs.mkdirSync(d, { recursive: true });
+    return d;
   }
 
   save() {
+    if (this.readonly) return;
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.flush(), 400);
+    this.timer = setTimeout(() => this.flush(), 300);
   }
 
   flush() {
     clearTimeout(this.timer);
+    if (this.readonly) return;
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
       fs.writeFileSync(this.file + '.tmp', JSON.stringify(this.data, null, 1));
@@ -79,4 +65,4 @@ class Store {
   }
 }
 
-module.exports = { Store, DEFAULT_SETTINGS };
+module.exports = { Store, id };
