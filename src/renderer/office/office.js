@@ -2,6 +2,7 @@
 // worker sitting at a desk, walking about when idle, glowing when working and
 // calling for the owner when blocked. Also the layout editor.
 import { TILE, ITEMS, floorTile, characterSprites } from './sprites.js';
+import { Scene3D } from './office3d.js';
 import { bubbleFor, mayWander, summarize } from './status.mjs';
 
 const SPEED = 3.2;              // tiles per second
@@ -53,13 +54,14 @@ function doorsOf(layout) {
 }
 
 export class Office {
-  constructor(container, { onSelect, onOpen, onLayout, onDesk }) {
+  constructor(container, { onSelect, onOpen, onContext, onLayout, onDesk }) {
     this.container = container;
     this.cv = document.createElement('canvas');
     this.cv.className = 'office-canvas';
     container.append(this.cv);
     this.g = this.cv.getContext('2d');
-    this.onSelect = onSelect; this.onOpen = onOpen; this.onLayout = onLayout; this.onDesk = onDesk;
+    try { this.r3 = new Scene3D(this); this.cv.style.display = 'none'; } catch (err) { console.warn('3D view unavailable, using 2D:', err.message); this.r3 = null; }
+    this.onSelect = onSelect; this.onOpen = onOpen; this.onContext = onContext; this.onLayout = onLayout; this.onDesk = onDesk;
     this.layout = defaultLayout();
     this.workers = [];
     this.chars = new Map();
@@ -83,7 +85,7 @@ export class Office {
       last = now;
       this.t += dt;
       this.update(dt);
-      this.draw();
+      if (this.use3d()) this.r3.render(this.t); else this.draw();
     };
     requestAnimationFrame(loop);
   }
@@ -102,6 +104,7 @@ export class Office {
     this.blocked = new Set();
     for (const it of L.items) for (const [dx, dy] of (ITEMS[it.type]?.blocks || [])) this.blocked.add(key(it.x + dx, it.y + dy));
     this.doors = doorsOf(L);
+    if (this.r3) this.r3.dirty = true;
   }
 
   canStep(ax, ay, bx, by) {
@@ -194,7 +197,16 @@ export class Office {
   }
 
   select(id) { this.selected = id; }
-  setEdit(on) { this.edit = on; this.editSel = null; this.cv.style.cursor = on ? 'default' : 'grab'; }
+  use3d() { return !!this.r3 && !this.edit; }
+  setEdit(on) {
+    this.edit = on; this.editSel = null; this.cv.style.cursor = on ? 'default' : 'grab';
+    if (this.r3) {                       // layout editing stays on the flat 2D plan
+      this.cv.style.display = on ? '' : 'none';
+      this.r3.cv.style.display = on ? 'none' : '';
+      this.r3.hud.style.display = on ? 'none' : '';
+      if (on) this.fit(true); else this.r3.dirty = true;
+    }
+  }
 
   // ---- simulation ------------------------------------------------------------
   update(dt) {
@@ -253,6 +265,7 @@ export class Office {
     this.cv.width = Math.round(w * dpr); this.cv.height = Math.round(h * dpr);
     this.cv.style.width = `${w}px`; this.cv.style.height = `${h}px`;
     this.dpr = dpr;
+    if (this.r3) { this.r3.resize(); if (force || !this.r3.fitted) { this.r3.fit(); this.r3.fitted = true; } }
     if (force || !this.fitted) {
       const L = this.layout;
       // fractional scale so the floor fills the column; pixels stay crisp enough at these sizes
@@ -265,6 +278,7 @@ export class Office {
   }
 
   zoom(delta) {
+    if (this.use3d()) { this.r3.zoom(delta); return; }
     const w = this.container.clientWidth, h = this.container.clientHeight;
     const s = Math.max(0.5, Math.min(4, this.scale + delta * 0.5));
     if (s === this.scale) return;
@@ -326,6 +340,12 @@ export class Office {
       if (d.moved) return;
       const c = this.charAt(this.toTile(e));
       this.onSelect?.(c ? c.id : null);
+    });
+    cv.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (this.edit) return;
+      const c = this.charAt(this.toTile(e));
+      if (c) this.onContext?.(c.id, e.clientX, e.clientY);
     });
     cv.addEventListener('dblclick', (e) => { const c = this.charAt(this.toTile(e)); if (c) this.onOpen?.(c.id); });
     cv.addEventListener('wheel', (e) => { e.preventDefault(); if (!e.deltaX && !e.deltaY) return; this.userMoved = true; this.wheels = (this.wheels || 0) + 1; if (e.ctrlKey || e.metaKey) this.zoom(e.deltaY < 0 ? 1 : -1); else this.pan = { x: this.pan.x - e.deltaX, y: this.pan.y - e.deltaY }; }, { passive: false });

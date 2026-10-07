@@ -38,6 +38,7 @@ function toast(text, kind = '') {
 const office = new Office($('#office'), {
   onSelect: (id) => select(id),
   onOpen: (id) => openWorkerTerminal(id),
+  onContext: (id, x, y) => agentMenu(id, x, y),
   onLayout: (layout) => { if (S.ws) api.wsUpdate({ id: S.ws.id, layout }); },
   onDesk: (desk) => deskDialog(desk),
 });
@@ -191,6 +192,26 @@ async function startWorker(id) {
   if (r?.error) { toast(r.error, 'err'); return null; }
   if (r?.id) panes.meta.set(r.id, r);
   return r;
+}
+// Right-click menu on an agent avatar.
+function agentMenu(id, x, y) {
+  $('.ctx-menu')?.remove();
+  const g = (S.guests || []).find((q) => q.id === id);
+  const w = (S.ws?.workers || []).find((q) => q.id === id);
+  if (!g && !w) return;
+  select(id);
+  const items = g
+    ? [['▮ Terminalde aç', async () => { const r = await api.guestTerminal({ id }); if (r?.error) toast(r.error, 'err'); }], ['✦ Bu ofise dahil et', () => adoptDialog(g)]]
+    : [['▮ Terminalini aç', () => openWorkerTerminal(id)], ['ⓘ Detay / ayarlar', () => workerDialog(w)], ...(w.running ? [['■ Durdur', () => api.workerStop({ id })]] : [['▶ Başlat', () => startWorker(id)]])];
+  const m = document.createElement('div');
+  m.className = 'ctx-menu';
+  m.innerHTML = `<div class="ctx-title">${esc((g || w).name)}</div>` + items.map(([t], i) => `<button data-i="${i}">${t}</button>`).join('');
+  m.style.left = `${Math.min(x, innerWidth - 190)}px`; m.style.top = `${Math.min(y, innerHeight - 40 - items.length * 30)}px`;
+  m.onclick = (e) => { const i = e.target.closest('[data-i]')?.dataset.i; if (i == null) return; m.remove(); items[i][1](); };
+  m.oncontextmenu = (e) => e.preventDefault();
+  document.body.append(m);
+  const off = (e) => { if (!m.contains(e.target)) { m.remove(); removeEventListener('pointerdown', off, true); } };
+  setTimeout(() => addEventListener('pointerdown', off, true), 0);
 }
 async function openWorkerTerminal(id) {
   const w = (S.ws?.workers || []).find((x) => x.id === id);

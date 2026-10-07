@@ -343,3 +343,8 @@ export function floorTile(name) {
   cache.set(key, cv);
   return cv;
 }
+
+// Palette of one character, shared with the 3D renderer so both look the same person.
+export function characterColors(seed) {
+  return { hair: pick(HAIRS, seed, 1), skin: pick(SKINS, seed, 2), shirt: pick(SHIRTS, seed, 3), pants: pick(PANTS, seed, 4), specs: rnd(seed, 6) < 0.3 };
+}
