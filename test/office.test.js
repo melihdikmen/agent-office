@@ -125,3 +125,18 @@ test('workers are named automatically and only one is lead', () => {
   workers.remove(ws, b.id);
   assert.strictEqual(ws.lead, a.id);
 });
+
+test('board drag-and-drop calls: moving between columns changes status, drop on done closes with a report', () => {
+  const { ws, board } = rig();
+  const t = board.create(ws, { title: 'Sürükle', createdBy: 'user' });
+  assert.strictEqual(t.status, 'backlog');
+  for (const st of ['todo', 'doing', 'review', 'backlog']) {
+    board.update(ws, t.id, { status: st }, 'user');
+    assert.strictEqual(board.task(ws, t.id).status, st);
+  }
+  board.done(ws, t.id, { summary: 'Sahip panodan kapattı.' }, 'user');
+  assert.strictEqual(board.task(ws, t.id).status, 'done');
+  assert.strictEqual(ws.reports[0].taskId, t.id);
+  board.update(ws, t.id, { status: 'doing' }, 'user');       // reopen by dragging out of done
+  assert.strictEqual(board.task(ws, t.id).status, 'doing');
+});

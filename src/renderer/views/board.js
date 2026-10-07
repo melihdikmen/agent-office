@@ -54,6 +54,8 @@ export class BoardView {
         e.preventDefault(); col.classList.remove('over');
         const id = e.dataTransfer.getData('text/plain');
         const st = col.dataset.st;
+        const t = this.tasks.find((x) => x.id === id);
+        if (!t || t.status === st) return;       // stray drop, or same column
         if (st === 'done') await this.api.taskDone({ id, report: { summary: 'Sahip panodan kapattı.' } });
         else await this.api.taskUpdate({ id, patch: { status: st } });
       };

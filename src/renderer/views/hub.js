@@ -6,7 +6,7 @@ export class HubView {
   constructor(root, api, { toast }) {
     this.root = root; this.api = api; this.toast = toast; this.items = [];
     root.addEventListener('submit', (e) => this.submit(e));
-    root.addEventListener('change', (e) => { if (e.target.matches('[data-on]')) this.set(e.target.dataset.on, { on: e.target.checked }); });
+    root.addEventListener('change', (e) => { if (e.target.matches('[data-env]')) this.set(e.target.dataset.env, { env: e.target.value }); else if (e.target.matches('[data-on]')) this.set(e.target.dataset.on, { on: e.target.checked }); });
   }
 
   set items(v) { this._items = v; } get items() { return this._items; }
@@ -16,11 +16,11 @@ export class HubView {
   render() {
     this.root.innerHTML = `<div class="hub-head"><h3>Entegrasyon merkezi</h3><span class="muted">Bir kez bağla; bundan sonra başlayan her çalışan bu araçları kullanır. Anahtarlar sistem anahtar zincirinde şifreli durur.</span></div>
       <div class="hub-grid">${this.items.map((it) => `<form class="hub-card ${it.on ? 'on' : ''}" data-id="${it.id}">
-        <div class="hub-top"><b>${esc(it.name)}</b><label class="switch"><input type="checkbox" data-on="${it.id}" ${it.on ? 'checked' : ''}><i></i></label></div>
+        <div class="hub-top"><b>${esc(it.name)}</b>${it.secret ? `<select class="env" data-env="${it.id}" title="Ortam">${['dev', 'prod'].map((e) => `<option value="${e}" ${it.env === e ? 'selected' : ''}>${e}${it.hasSecrets?.[e] ? ' ●' : ''}</option>`).join('')}</select>` : ''}<label class="switch"><input type="checkbox" data-on="${it.id}" ${it.on ? 'checked' : ''}><i></i></label></div>
         <p class="muted">${esc(it.desc)}</p>
-        ${it.secret ? `<div class="row"><input name="secret" type="password" placeholder="${esc(it.secret)}${it.hasSecret ? ' · kayıtlı' : ''}" autocomplete="off"><button class="btn small">${it.hasSecret ? 'Değiştir' : 'Kaydet'}</button></div>` : `<p class="muted small">${esc(it.note || 'Anahtar gerekmez.')}</p>`}
+        ${it.secret ? `<div class="row"><input name="secret" type="password" placeholder="${esc(it.secret)} (${it.env})${it.hasSecret ? ' · kayıtlı' : ''}" autocomplete="off"><button class="btn small">${it.hasSecret ? 'Değiştir' : 'Kaydet'}</button></div>` : `<p class="muted small">${esc(it.note || 'Anahtar gerekmez.')}</p>`}
         ${it.on ? '<span class="hub-state">● bağlı · yeni başlayan çalışanlara verilir</span>' : ''}</form>`).join('')}</div>
-      <p class="muted pad">Dev/prod ayrımı: farklı ortamlar için ayrı ofisler kur; her ofisin çalışanları ortak merkezden ama kendi klasöründe çalışır. Değişiklikler, çalışanı yeniden başlatınca geçerli olur.</p>`;
+      <p class="muted pad">Her entegrasyonun dev ve prod anahtarı ayrı saklanır; seçili ortamın anahtarı çalışanlara verilir. Değişiklikler, çalışanı yeniden başlatınca geçerli olur.</p>`;
   }
 
   async set(id, patch) {

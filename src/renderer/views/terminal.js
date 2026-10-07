@@ -5,6 +5,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
+import { pruneTree, parseSaved } from './layout-tree.mjs';
 
 const SIZES = { S: 11, M: 13, L: 15 };
 const THEME = {
@@ -26,6 +27,8 @@ export class Panes {
     this.maximized = null;
     this.meta = new Map();            // termId → snapshot from main
     this.workersById = new Map();
+    this.key = null;                  // workspace id the layout is saved under
+    this.restored = false;
     api.on('pty-data', ({ id, data }) => this.terms.get(id)?.term.write(data));
     api.on('pty-exit', ({ id }) => { const t = this.terms.get(id); if (t) t.info.exited = true; this.render(); });
     window.addEventListener('resize', () => this.fitAll());
@@ -36,7 +39,32 @@ export class Panes {
     this.workersById = new Map(workers.map((w) => [w.id, w]));
     let changed = false;
     for (const id of [...this.terms.keys()]) if (!this.meta.has(id)) { this.detach(id); changed = true; }
+    if (!this.restored && this.key && this.meta.size) { this.restore(); return; }
     if (changed) this.render(); else this.updateHeaders();
+  }
+
+  // ---- persistence -----------------------------------------------------------
+  setKey(key) { if (key && key !== this.key) { this.key = key; this.restored = false; } }
+
+  save() {
+    if (!this.key || !this.restored) return;
+    try { localStorage.setItem(`ao.panes.${this.key}`, JSON.stringify({ tree: this.tree, focused: this.focused })); } catch { /* storage blocked */ }
+  }
+
+  // Bring back the saved layout once the terminals exist; dead panes are pruned.
+  async restore() {
+    this.restored = true;
+    let saved = null;
+    try { saved = parseSaved(localStorage.getItem(`ao.panes.${this.key}`)); } catch { /* storage blocked */ }
+    const tree = this.tree ? null : pruneTree(saved?.tree, new Set(this.meta.keys()));
+    if (!tree) { this.render(); return; }
+    this.tree = tree;
+    const ids = this.leaves();
+    for (const id of ids) if (!this.terms.has(id)) this.attach(id);
+    this.focused = ids.includes(saved.focused) ? saved.focused : ids[0];
+    this.render();
+    for (const id of ids) { const buf = await this.api.termBuffer({ id }); if (buf) this.terms.get(id)?.term.write(buf); }
+    this.focus(this.focused);
   }
 
   has(id) { return this.terms.has(id); }
@@ -144,13 +172,14 @@ export class Panes {
     this.onClose?.(id);
   }
 
-  focus(id) { this.focused = id; this.updateHeaders(); setTimeout(() => this.terms.get(id)?.term.focus(), 0); }
+  focus(id) { this.focused = id; this.save(); this.updateHeaders(); setTimeout(() => this.terms.get(id)?.term.focus(), 0); }
   setSize(s) { this.size = s; for (const t of this.terms.values()) t.term.options.fontSize = SIZES[s]; this.fitAll(); }
   toggleMax(id) { this.maximized = this.maximized === id ? null : id; this.render(); }
 
   // ---- DOM -------------------------------------------------------------------
   render() {
     const root = this.root;
+    this.save();
     for (const t of this.terms.values()) if (t.el) t.el.remove();
     root.innerHTML = '';
     if (!this.tree) { root.innerHTML = '<div class="panes-empty">Bir çalışanın sprite\'ına çift tıkla ya da <b>+ shell</b> ile terminal aç.</div>'; return; }
@@ -176,7 +205,7 @@ export class Panes {
         a.style.flex = `${n.ratio} 1 0`; b.style.flex = `${1 - n.ratio} 1 0`;
         this.fitAll();
       };
-      const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+      const up = () => { this.save(); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
       window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
       e.preventDefault();
     });

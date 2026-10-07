@@ -74,6 +74,7 @@ function apply(st) {
     office.setWorkers(workers, S.guests);
     bubbles(workers);
   } else office.setWorkers([], S.guests);
+  panes.setKey(ws?.id);
   panes.setMeta(st.terminals, workers);
   board.set(ws?.tasks || [], workers);
   reports.set(ws?.reports || [], workers);

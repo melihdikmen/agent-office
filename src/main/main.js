@@ -240,7 +240,7 @@ async function createWindow() {
   H('task-remove', ({ id }) => { board.remove(need(), id); return true; });
   H('hands-off', ({ on }) => { store.data.handsOff = !!on; store.save(); push(); return !!on; });
 
-  H('integration-set', ({ id, on, secret }) => integrations.set(id, { on, secret }));
+  H('integration-set', ({ id, on, secret, env }) => integrations.set(id, { on, secret, env }));
   H('memory-graph', () => memory.graph(need()));
   H('memory-search', ({ query }) => memory.search(need(), query));
   H('watch-list', () => watch.list().slice(0, 100));

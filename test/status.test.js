@@ -37,3 +37,15 @@ test('only idle workers wander, at most two at once', async () => {
   assert.ok(!mayWander({}, { status: 'idle', guest: true }, 0));
   assert.deepStrictEqual(summarize([{ status: 'working' }, { status: 'waiting' }, { status: 'offline' }, { status: 'idle' }]), { working: 1, waiting: 1, sleeping: 1 });
 });
+
+test('terminal layout: pruneTree drops dead panes, collapses splits, clamps ratio', async () => {
+  const { pruneTree, parseSaved } = await import('../src/renderer/views/layout-tree.mjs');
+  const tree = { dir: 'row', ratio: 0.5, a: { leaf: 'a' }, b: { dir: 'col', ratio: 0.99, a: { leaf: 'b' }, b: { leaf: 'c' } } };
+  assert.deepStrictEqual(pruneTree(tree, new Set(['a', 'b', 'c'])), { dir: 'row', ratio: 0.5, a: { leaf: 'a' }, b: { dir: 'col', ratio: 0.85, a: { leaf: 'b' }, b: { leaf: 'c' } } });
+  assert.deepStrictEqual(pruneTree(tree, new Set(['a', 'c'])), { dir: 'row', ratio: 0.5, a: { leaf: 'a' }, b: { leaf: 'c' } });
+  assert.deepStrictEqual(pruneTree(tree, new Set(['b'])), { leaf: 'b' });
+  assert.strictEqual(pruneTree(tree, new Set()), null);
+  assert.strictEqual(pruneTree('junk', new Set(['a'])), null);
+  assert.strictEqual(parseSaved('{oops'), null);
+  assert.deepStrictEqual(parseSaved('{"tree":null}'), { tree: null });
+});

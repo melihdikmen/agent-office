@@ -18,38 +18,57 @@ const CATALOG = [
   { id: 'context7', name: 'Context7', desc: 'Güncel kütüphane dokümanları', secret: null, config: () => ({ type: 'http', url: 'https://mcp.context7.com/mcp' }) },
 ];
 
+const ENVS = ['dev', 'prod'];
+
 class Integrations {
   constructor(store) { this.store = store; }
 
   get state() { return this.store.data.integrations || (this.store.data.integrations = {}); }
 
-  list() {
-    return CATALOG.map((c) => ({ id: c.id, name: c.name, desc: c.desc, secret: c.secret, note: c.note || null, on: !!this.state[c.id]?.on, hasSecret: !!this.state[c.id]?.secret }));
+  // Per integration: { on, env, secrets: { dev, prod } } (encrypted). Older saves kept one
+  // `secret`; it becomes the prod key so nothing changes for existing setups.
+  entry(id) {
+    const cur = this.state[id] || (this.state[id] = {});
+    if (cur.secret) { cur.secrets = { ...(cur.secrets || {}), prod: cur.secrets?.prod || cur.secret }; delete cur.secret; }
+    if (!cur.secrets) cur.secrets = {};
+    if (!ENVS.includes(cur.env)) cur.env = 'prod';
+    return cur;
   }
 
-  set(id, { on, secret }) {
+  list() {
+    return CATALOG.map((c) => {
+      const e = this.entry(c.id);
+      return { id: c.id, name: c.name, desc: c.desc, secret: c.secret, note: c.note || null, on: !!e.on, env: e.env,
+        hasSecret: !!e.secrets[e.env], hasSecrets: { dev: !!e.secrets.dev, prod: !!e.secrets.prod } };
+    });
+  }
+
+  // `env` switches the active environment; `secret` is stored for `env` (or the active one).
+  set(id, { on, secret, env }) {
     const c = CATALOG.find((x) => x.id === id);
     if (!c) throw new Error('bilinmeyen entegrasyon');
-    const cur = this.state[id] || {};
+    if (env !== undefined && !ENVS.includes(env)) throw new Error('ortam dev veya prod olmalı');
+    const cur = this.entry(id);
+    if (env !== undefined) cur.env = env;
     if (secret !== undefined && secret !== '') {
       if (!safeStorage.isEncryptionAvailable()) throw new Error('Bu sistemde şifreli saklama yok; anahtar kaydedilmedi.');
-      cur.secret = safeStorage.encryptString(String(secret)).toString('base64');
+      cur.secrets[cur.env] = safeStorage.encryptString(String(secret)).toString('base64');
     }
-    if (secret === '') delete cur.secret;
+    if (secret === '') delete cur.secrets[cur.env];
     if (on !== undefined) cur.on = !!on;
-    if (cur.on && c.secret && !cur.secret) throw new Error(`${c.name} için ${c.secret} gerekli.`);
-    this.state[id] = cur;
+    if (cur.on && c.secret && !cur.secrets[cur.env]) throw new Error(`${c.name} için ${cur.env} ortamı ${c.secret} gerekli.`);
     this.store.save();
     return this.list();
   }
 
-  secret(id) {
-    const s = this.state[id]?.secret;
+  secret(id, env) {
+    const e = this.entry(id);
+    const s = e.secrets[env || e.env];
     if (!s) return null;
     try { return safeStorage.decryptString(Buffer.from(s, 'base64')); } catch { return null; }
   }
 
-  // mcpServers entries for every enabled integration.
+  // mcpServers entries for every enabled integration, using each one's selected environment.
   mcpServers() {
     const out = {};
     for (const c of CATALOG) {
@@ -62,4 +81,4 @@ class Integrations {
   }
 }
 
-module.exports = { Integrations, CATALOG };
+module.exports = { Integrations, CATALOG, ENVS };

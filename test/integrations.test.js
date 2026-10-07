@@ -41,3 +41,37 @@ test('package.json builds for mac, win (nsis) and linux (AppImage)', () => {
   assert.strictEqual(pkg.build.linux.target, 'AppImage');
   for (const s of ['dist:mac', 'dist:win', 'dist:linux']) assert.ok(pkg.scripts[s], s);
 });
+
+test('dev and prod keys are stored separately and the selected env feeds the MCP config', () => {
+  const i = mk();
+  i.set('github', { env: 'dev', secret: 'ghp_dev' });
+  i.set('github', { env: 'prod', secret: 'ghp_prod', on: true });
+  const gh = () => i.mcpServers().github.env.GITHUB_PERSONAL_ACCESS_TOKEN;
+  assert.strictEqual(gh(), 'ghp_prod');
+  i.set('github', { env: 'dev' });
+  assert.strictEqual(gh(), 'ghp_dev');
+  const row = i.list().find((x) => x.id === 'github');
+  assert.deepStrictEqual(row.hasSecrets, { dev: true, prod: true });
+  assert.strictEqual(row.env, 'dev');
+});
+
+test('switching to an env without a key is refused while on; off is allowed and skipped', () => {
+  const i = mk();
+  i.set('stripe', { env: 'prod', secret: 'sk_live', on: true });
+  assert.throws(() => i.set('stripe', { env: 'dev' }), /dev ortamı/);
+  i.set('stripe', { on: false });
+  i.set('stripe', { env: 'dev' });
+  assert.strictEqual(i.mcpServers().stripe, undefined);
+  assert.throws(() => i.set('stripe', { env: 'staging' }), /dev veya prod/);
+});
+
+test('legacy single secret is treated as the prod key', () => {
+  const i = mk();
+  i.state.supabase = { on: true, secret: Buffer.from('sbp_old').toString('base64') };
+  assert.ok(i.mcpServers().supabase.args.includes('sbp_old'));
+  assert.deepStrictEqual(i.list().find((x) => x.id === 'supabase').hasSecrets, { dev: false, prod: true });
+});
+
+test('catalog still has Sentry, GitHub, Supabase and Stripe', () => {
+  for (const id of ['sentry', 'github', 'supabase', 'stripe']) assert.ok(CATALOG.find((c) => c.id === id), id);
+});
