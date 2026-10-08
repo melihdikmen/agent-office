@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { id } = require('./store');
 const { ENGINES, findBin, launch, Activity } = require('./engines');
+const worktree = require('./worktree');
 
 const MODELS = ['haiku', 'sonnet', 'opus', 'fable'];
 const PERMISSION_MODES = ['acceptEdits', 'auto', 'bypassPermissions', 'plan'];
@@ -39,6 +40,7 @@ function briefing(ws, worker, memoryFile) {
     'You run in your own terminal; the owner (a human) watches the office, reads the board and the reports, and may type to you directly.',
     '',
     ...(worker.engine && worker.engine !== 'claude' ? ['The office board tools (board_list, task_create, task_update, task_done, message, memory_note, memory_search, team_list) come from the MCP server named "office". Use them for all board work; if you cannot see them, tell the owner instead of improvising.', ''] : []),
+    ...(worker.worktree && worker.worktreePath ? [`You work in your own git worktree (${worker.worktreePath}) on branch ${worker.worktreeBranch}, branched from ${worker.worktreeBase}. Stay in it: commit your work there in small commits with clear messages, never switch branches and never touch the main project folder. The owner reviews the branch and merges it.`, ''] : []),
     '## Your role',
     worker.duties || worker.role,
     isLead ? 'You are the lead: when the owner gives a goal, split it into tasks with task_create (assign each to a teammate by name, keep one for yourself, set parent to the goal task), follow progress on the board, and when every part is done close the goal with task_done and a summary report.' : '',
@@ -113,7 +115,7 @@ class Workers extends EventEmitter {
       duties: String(def.duties || '').trim(),
       engine: ENGINES[def.engine] ? def.engine : 'claude',
       model: this.modelFor(ENGINES[def.engine] ? def.engine : 'claude', def.model),
-      extraArgs: String(def.extraArgs || '').trim(), command: String(def.command || '').trim(),
+      worktree: !!def.worktree, extraArgs: String(def.extraArgs || '').trim(), command: String(def.command || '').trim(),
       permissionMode: PERMISSION_MODES.includes(def.permissionMode) ? def.permissionMode : 'auto',
       seed: crypto.randomBytes(4).readUInt32LE(0),
       deskId: def.deskId || null, sessionId: null, created: Date.now(), autostart: true,
@@ -143,6 +145,7 @@ class Workers extends EventEmitter {
     for (const k of ['name', 'role', 'duties', 'deskId']) if (patch[k] !== undefined) w[k] = patch[k];
     if (ENGINES[patch.engine] && patch.engine !== w.engine) { w.engine = patch.engine; if (patch.model === undefined) w.model = this.modelFor(w.engine, ''); }
     if (patch.model !== undefined) w.model = this.modelFor(w.engine || 'claude', patch.model);
+    if (patch.worktree !== undefined) w.worktree = !!patch.worktree;
     for (const k of ['extraArgs', 'command']) if (patch[k] !== undefined) w[k] = String(patch[k] || '').trim();
     if (PERMISSION_MODES.includes(patch.permissionMode)) w.permissionMode = patch.permissionMode;
     if (patch.lead) ws.lead = w.id;
@@ -153,6 +156,8 @@ class Workers extends EventEmitter {
 
   remove(ws, wid) {
     this.stop(ws, wid);
+    const gone = ws.workers.find((x) => x.id === wid);
+    if (gone?.worktreePath) { try { worktree.remove(ws, gone); } catch { /* branch stays */ } }
     ws.workers = ws.workers.filter((x) => x.id !== wid);
     if (ws.lead === wid) ws.lead = ws.workers[0]?.id || null;
     for (const t of ws.tasks) if (t.assignee === wid) t.assignee = null;
@@ -166,9 +171,12 @@ class Workers extends EventEmitter {
 
   start(ws, wid, { cols, rows } = {}) {
     const w = ws.workers.find((x) => x.id === wid);
-    const cwd = w?.cwd || ws.dir;
+    let cwd = w?.cwd || ws.dir;
     if (!w || !cwd) return null;
     if (this.running(wid)) return this.terminals.snapshot(this.terminals.get(this.termId(wid)));
+    if (w.worktree) {            // isolated checkout on the worker's own branch
+      try { cwd = worktree.ensure(ws, w, this.rt.dataDir); } catch (e) { return { error: e.message }; }
+    }
     const memoryFile = this.memory.ensure(ws, w);
     if (w.engine && w.engine !== 'claude') return this.startOther(ws, w, cwd, memoryFile, { cols, rows });
     const sessionId = w.sessionId && this.rt.scanner.sessionFile(w.sessionId, cwd) ? w.sessionId : null;
@@ -269,7 +277,7 @@ class Workers extends EventEmitter {
       if (w.sessionId) w.pastSessions = [...(w.pastSessions || []).filter((x) => x !== w.sessionId), w.sessionId].slice(-20);
       w.sessionId = reg.sessionId; this.store.save();
     }
-    const file = w.sessionId && (!w.engine || w.engine === 'claude') ? this.rt.scanner.sessionFile(w.sessionId, w.cwd || ws.dir) : null;
+    const file = w.sessionId && (!w.engine || w.engine === 'claude') ? this.rt.scanner.sessionFile(w.sessionId, (w.worktree && w.worktreePath) || w.cwd || ws.dir) : null;
     const s = file ? this.rt.scanner.summarizeSession(file) : null;
     const cost = file ? this.rt.scanner.costState(file) : null;
     let status = 'offline';

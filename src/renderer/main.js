@@ -5,6 +5,8 @@ import { Office } from './office/office.js';
 import { SHIRTS } from './office/sprites.js';
 import { Panes } from './views/terminal.js';
 import { NotifyView } from './views/notify.js';
+import { initI18n, tt } from './i18n.js';
+import { startTour } from './views/tour.js';
 import { BoardView } from './views/board.js';
 import { ReportsView } from './views/reports.js';
 import { MemoryView } from './views/memory.js';
@@ -27,6 +29,10 @@ const TEAMS = {
 
 const S = { st: null, ws: null, selected: null, ltab: 'office', rtab: 'terminal', edit: false, prevAct: new Map(), lastSeen: new Map() };
 const workerColor = (w) => SHIRTS[(w.seed >>> 0) % SHIRTS.length];
+
+let LANG = 'tr';
+try { LANG = localStorage.getItem('ao.lang') === 'en' ? 'en' : 'tr'; } catch { /* storage blocked */ }
+initI18n(LANG);
 
 function toast(text, kind = '') {
   const el = document.createElement('div');
@@ -89,6 +95,9 @@ function apply(st) {
     bubbles(workers);
   } else office.setWorkers([], S.guests);
   notify.set(st.notify);
+  firstRun(st);
+  $('#tabInfo').classList.toggle('has', !!st.app?.update?.newer);
+  $('#railDot').className = `rail-dot ${workers.some((w) => w.status === 'waiting') ? 'warn' : workers.some((w) => w.status === 'working') ? 'busy' : ''}`;
   panes.setKey(ws?.id); panes2.setKey(ws?.id ? `${ws.id}.L` : null);
   panes.setMeta(st.terminals, workers); panes2.setMeta(st.terminals, workers);
   board.set(ws?.tasks || [], workers);
@@ -308,6 +317,8 @@ function workerDialog(w = null) {
     <label>Görev tanımı <textarea name="duties" rows="3">${esc(w?.duties || '')}</textarea></label>
     <div class="grid2"><label>Motor <select name="engine">${engineOptions(w?.engine)}</select></label><label>İzinler <select name="permissionMode">${permOptions(w?.permissionMode)}</select></label></div>
     <label>Model <span class="model-slot">${modelField(w?.engine || 'claude', w?.model)}</span></label>
+    <label class="row"><input type="checkbox" name="worktree" ${w?.worktree ? 'checked' : ''}> Kendi git worktree'sinde çalış (izole dal, diğer ajanlarla çakışmaz)</label>
+    ${w?.worktree ? '<div class="wt-box" id="wtBox"><span class="muted">worktree durumu okunuyor…</span></div>' : ''}
     <details class="adv" ${w?.extraArgs || w?.command ? 'open' : ''}><summary>Gelişmiş (Codex / Gemini)</summary>
       <label>Komut yolu <input name="command" value="${esc(w?.command || '')}" placeholder="boşsa PATH'te aranır"></label>
       <label>Ek argümanlar <input name="extraArgs" value="${esc(w?.extraArgs || '')}" placeholder="örn. --search"></label></details>
@@ -320,7 +331,7 @@ function workerDialog(w = null) {
     const preset = fd.get('rolePreset');
     const role = preset === '__custom' ? String(fd.get('role')).trim() : preset;
     const presetDuties = $('option:checked', form.rolePreset)?.dataset.duties || '';
-    const def = { name: fd.get('name'), role, duties: String(fd.get('duties')).trim() || presetDuties, model: fd.get('model'), engine: fd.get('engine'), command: fd.get('command'), extraArgs: fd.get('extraArgs'), permissionMode: fd.get('permissionMode'), lead: !!fd.get('lead') };
+    const def = { name: fd.get('name'), role, duties: String(fd.get('duties')).trim() || presetDuties, model: fd.get('model'), engine: fd.get('engine'), command: fd.get('command'), extraArgs: fd.get('extraArgs'), worktree: !!fd.get('worktree'), permissionMode: fd.get('permissionMode'), lead: !!fd.get('lead') };
     if (w) { await api.workerUpdate({ id: w.id, patch: def }); return; }
     const id = await api.workerCreate(def);
     if (id?.error) { toast(id.error, 'err'); return false; }
@@ -328,6 +339,7 @@ function workerDialog(w = null) {
     toast(`${def.name || 'Yeni çalışan'} işe alındı`);
   });
   const form = $('form', dlgBody);
+  if (w?.worktree) loadWorktree(w);
   form.engine.onchange = () => { $('.model-slot', form).innerHTML = modelField(form.engine.value, ''); };
   form.rolePreset.onchange = () => { const custom = form.rolePreset.value === '__custom'; $('.custom-role', form).classList.toggle('hidden', !custom); if (!custom) form.duties.value = $('option:checked', form.rolePreset).dataset.duties || ''; };
   dlgBody.onclick = async (e) => {
@@ -337,6 +349,31 @@ function workerDialog(w = null) {
     if (act === 'stop') { await api.workerStop({ id: w.id }); dlg.close(); }
     if (act === 'remove') { if (confirm(`${w.name} işten çıkarılsın mı? Terminali kapanır, hafıza dosyası kalır.`)) { await api.workerRemove({ id: w.id }); select(null); dlg.close(); } }
     if (act === 'memory') { const text = await api.workerMemory({ id: w.id }); openDialog(`<form><h3>${esc(w.name)} · hafıza</h3><pre class="memo">${esc(text || '(boş)')}</pre><div class="dlg-actions"><button value="cancel" class="btn" formnovalidate>Kapat</button></div></form>`); }
+  };
+}
+// Review panel for a worker's worktree: what changed on its branch, commit it, merge it into the base.
+async function loadWorktree(w) {
+  const box = $('#wtBox');
+  if (!box) return;
+  const st = await api.worktreeStatus({ id: w.id });
+  if (st?.error) { box.innerHTML = `<span class="muted">${esc(st.error)}</span>`; return; }
+  if (!st.exists) { box.innerHTML = '<span class="muted">Worktree, çalışan ilk başladığında açılır.</span>'; return; }
+  box.innerHTML = `<div class="wt-head"><b>⎇ ${esc(st.branch)}</b> <span class="muted">← ${esc(st.base)} · ${st.ahead} commit önde${st.behind ? `, ${st.behind} geride` : ''}</span></div>
+    ${st.stat ? `<div class="muted">${esc(st.stat)}</div>` : ''}
+    ${st.dirty.length ? `<div class="wt-warn">${st.dirty.length} commitlenmemiş değişiklik</div>` : ''}
+    ${st.commits.length ? `<ul class="wt-commits">${st.commits.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : '<div class="muted">Henüz commit yok.</div>'}
+    <div class="row acts"><button type="button" class="btn small" data-wt="commit" ${st.dirty.length ? '' : 'disabled'}>Commit'le</button>
+      <button type="button" class="btn small primary" data-wt="merge" ${st.ahead && !st.dirty.length ? '' : 'disabled'}>${esc(st.base)} dalına birleştir</button>
+      <button type="button" class="btn small" data-wt="remove">Worktree'yi sil</button></div>`;
+  box.onclick = async (e) => {
+    const act = e.target.closest('[data-wt]')?.dataset.wt;
+    if (!act) return;
+    let r;
+    if (act === 'commit') r = await api.worktreeCommit({ id: w.id, message: `office: ${w.name} çalışması` });
+    if (act === 'merge') r = await api.worktreeMerge({ id: w.id });
+    if (act === 'remove') { if (!confirm(`${w.name} için worktree silinsin mi? Dal ve commitler kalır (birleştirilmemişse sonra kurtarılabilir).`)) return; r = await api.worktreeRemove({ id: w.id }); }
+    if (r?.error) toast(r.error, 'err');
+    else { if (act === 'merge') toast(r.merged ? `${r.commits} commit birleştirildi` : r.reason); if (act === 'remove') { dlg.close(); return; } loadWorktree(w); }
   };
 }
 $('#addWorker').onclick = () => (S.ws ? workerDialog() : wsDialog());
@@ -450,6 +487,40 @@ function swapTerminals(toOffice) {
 $('#swapBtn').onclick = () => swapTerminals(!leftTermOpen());
 try { if (localStorage.getItem('ao.termInOffice')) swapTerminals(true); } catch { /* storage unavailable */ }
 
+// ---- about / what's new / updates / language / tour -----------------------------------
+let firstRunDone = false;
+function firstRun(st) {
+  if (firstRunDone || !st.app) return;
+  firstRunDone = true;
+  if (st.app.lang !== LANG) { try { localStorage.setItem('ao.lang', st.app.lang); } catch { /* storage blocked */ } if (st.app.lang !== LANG) { location.reload(); return; } }
+  if (!st.app.tourDone && !st.app.lastSeen) setTimeout(() => startTour((done) => api.appAck({ tour: true })), 1200);
+  else if (st.app.lastSeen !== st.app.version) setTimeout(() => { aboutDialog(); api.appAck({}); }, 800);
+}
+function aboutDialog() {
+  const a = S.st?.app;
+  if (!a) return;
+  const u = a.update;
+  const log = a.changelog.map((c) => `<h5>v${esc(c.version)} · ${esc(c.date)}</h5><ul>${(LANG === 'en' && c.en ? c.en : c.items).map((i) => `<li>${esc(i)}</li>`).join('')}</ul>`).join('');
+  openDialog(`<form><h3>Agent Office</h3>
+    <div class="about-ver"><b>v${esc(a.version)}</b><span class="spacer"></span>
+      <label class="row">${tt('Dil', 'Language')} <select name="uilang"><option value="tr" ${LANG === 'tr' ? 'selected' : ''}>Türkçe</option><option value="en" ${LANG === 'en' ? 'selected' : ''}>English</option></select></label></div>
+    <div class="upd ${u?.newer ? 'new' : ''}"><div>${u ? (u.newer ? `<b>${tt('Yeni sürüm', 'New version')} v${esc(u.version)}</b>${u.notes ? ` — ${esc(u.notes.slice(0, 160))}` : ''}` : tt('Güncelsin.', 'You are up to date.')) : tt('Güncelleme adresi girilmemiş.', 'No update address set.')}</div>
+      <div class="row"><input name="feed" value="${esc(a.updateFeed)}" placeholder="${tt('Güncelleme adresi (JSON ya da GitHub releases/latest)', 'Update feed (JSON or GitHub releases/latest)')}">
+      <button type="button" class="btn small" data-a="check">${tt('Denetle', 'Check')}</button>${u?.newer && u.url ? `<button type="button" class="btn small primary" data-a="download">${tt('İndir', 'Download')}</button>` : ''}</div></div>
+    <b>${tt('Yenilikler', 'What\'s new')}</b><div class="about-log">${log}</div>
+    <div class="dlg-actions"><button type="button" class="btn" data-a="tour">${tt('Turu başlat', 'Start the tour')}</button><span class="spacer"></span><button value="cancel" class="btn" formnovalidate>${tt('Kapat', 'Close')}</button></div></form>`);
+  const form = $('form', dlgBody);
+  form.uilang.onchange = async () => { await api.appAck({ lang: form.uilang.value }); try { localStorage.setItem('ao.lang', form.uilang.value); } catch { /* storage blocked */ } location.reload(); };
+  dlgBody.onclick = async (e) => {
+    const act = e.target.closest('[data-a]')?.dataset.a;
+    if (act === 'check') { const r = await api.updateCheck({ feed: form.feed.value }); if (r?.error) toast(r.error, 'err'); else { dlg.close(); setTimeout(aboutDialog, 100); } }
+    if (act === 'download') api.openUrl({ url: u.url });
+    if (act === 'tour') { dlg.close(); setTimeout(() => startTour(() => api.appAck({ tour: true })), 250); }
+  };
+}
+$('#tabInfo').onclick = aboutDialog;
+api.on('update', (r) => toast(tt(`Yeni sürüm v${r.version} var — ⓘ düğmesinden indir`, `New version v${r.version} available — download it from the ⓘ button`)));
+
 // ---- show / hide the office column ---------------------------------------------
 function setOfficeHidden(hide) {
   document.querySelector('.app').classList.toggle('no-left', hide);
@@ -457,8 +528,14 @@ function setOfficeHidden(hide) {
   if (!hide) setTimeout(() => office.fit(), 0);
   panes.fitAll(); panes2.fitAll();
 }
-$('#toggleOffice').onclick = () => setOfficeHidden(!document.querySelector('.app').classList.contains('no-left'));
-document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); $('#toggleOffice').click(); } });
+const toggleOffice = () => setOfficeHidden(!document.querySelector('.app').classList.contains('no-left'));
+$('#tabCollapse').onclick = toggleOffice;
+$('#officeRail').onclick = toggleOffice;
+$('#tabAddWorker').onclick = () => (S.ws ? workerDialog() : wsDialog());
+$('#tabSwap').onclick = () => swapTerminals(!leftTermOpen());
+$('#tabNewShell').onclick = () => $('#addShell').click();
+$('#tabSplit').onclick = () => { const p = [panes, panes2].find((x) => x.focused && x.has(x.focused)) || (leftTermOpen() ? panes2 : panes); if (p.focused) p.splitFrom(p.focused, 'row'); else $('#addShell').click(); };
+document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); toggleOffice(); } });
 try { if (localStorage.getItem('ao.officeHidden')) setOfficeHidden(true); } catch { /* storage unavailable */ }
 
 // ---- resizer -------------------------------------------------------------------

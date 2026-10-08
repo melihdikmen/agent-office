@@ -1,0 +1,24 @@
+'use strict';
+// What changed per release (Turkish + English); shown after an update and from the ⓘ button.
+module.exports = [
+  { version: '0.6.0', date: '2026-10-08',
+    items: [
+      'Çalışanlar için kendi git worktree\'leri: izole dal, inceleme, commit, birleştirme',
+      'Arayüz AgentSpace tarzına yaklaştı: sekme çubuğu düğmeleri, ofis gizlenince kenar çubuğu, yeni terminal başlıkları',
+      'Terminal grupları (sekmeler): gruplar arası sürükle-bırak, yeniden adlandırma',
+      'İlk kullanım turu, İngilizce arayüz, güncelleme denetimi ve bu yenilikler listesi (ⓘ)',
+    ],
+    en: [
+      'Per-worker git worktrees: isolated branch, review, commit and merge',
+      'UI moves closer to AgentSpace: tab-bar buttons, a side rail when the office is hidden, new terminal headers',
+      'Terminal groups (tabs): drag between groups, rename',
+      'First-run tour, English interface, update check and this what\'s-new list (ⓘ)',
+    ] },
+  { version: '0.5.0', date: '2026-10-08',
+    items: ['Bildirim merkezi: hangi projede hangi ajan ne bitirdi, sistem bildirimi ve çan listesi', 'Codex CLI ve Gemini CLI motorları; çalışan başına motor seçimi', '3B ofiste gün/gece ışığı ve ajanı seçince kamera takibi'],
+    en: ['Notification centre: which agent finished what in which project, system notifications and a bell list', 'Codex CLI and Gemini CLI engines; engine choice per worker', 'Day/night light in the 3D office and camera follow when you select an agent'] },
+  { version: '0.4.1', date: '2026-10-08', items: ['Uygulama arka plandayken bildirimler masaüstüne de düşer (macOS izni yoksa yedek yol)'], en: ['Notifications also reach the desktop while the app is in the background (fallback when macOS denies permission)'] },
+  { version: '0.4.0', date: '2026-10-07', items: ['Bildirim merkezi ilk sürüm', '3B ofis: gün/gece ışığı, ajanı seçince kamera takibi'], en: ['First notification centre', '3D office: day/night light, camera follow on selection'] },
+  { version: '0.3.0', date: '2026-10-07', items: ['3B ofis', 'Ajana sağ tıkla menü', 'Terminalleri ofis alanına koy ve iki alan arasında sürükle-bırak', 'Hub\'da dev/prod anahtarları'], en: ['3D office', 'Right-click menu on agents', 'Terminals in the office area and drag-and-drop between the two areas', 'Dev/prod keys in the Hub'] },
+  { version: '0.2.0', date: '2026-10-06', items: ['Piksel ofis, çalışan başına terminal, görev panosu, hafıza grafiği, canlı izleme, hub'], en: ['Pixel office, a terminal per worker, task board, memory graph, live watch, hub'] },
+];

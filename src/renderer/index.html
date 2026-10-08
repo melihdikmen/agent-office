@@ -14,6 +14,10 @@
         <button data-ltab="office" class="on">▮ Ofis <span id="activeCount" class="muted"></span><span id="guestCount" class="muted"></span></button>
         <button data-ltab="code">▮ Kod <span id="codeCount" class="muted"></span></button>
         <span class="spacer drag"></span>
+        <button id="tabInfo" class="tab-icon" title="Hakkında, yenilikler, güncelleme">ⓘ</button>
+        <button id="tabAddWorker" class="tab-icon" title="Çalışan ekle">＋</button>
+        <button id="tabSwap" class="tab-icon" title="3B ofis alanına terminal koy / geri al">◫</button>
+        <button id="tabCollapse" class="tab-icon" title="Ofisi gizle (⌘\)">−</button>
         <button id="wsMenuBtn" class="tab-icon" title="Ofisler">☰</button>
       </div>
       <div class="left-tools">
@@ -50,9 +54,9 @@
       <button id="autopilot" class="autopilot" title="Hands-off: biri bitince sıradaki görev otomatik başlar"><i></i><span>UYUYOR</span><b></b></button>
     </aside>
     <div class="resizer" id="resizer"></div>
+    <nav class="rail" id="officeRail" title="Ofisi göster (⌘\)"><span class="rail-btn">›</span><i class="rail-dot" id="railDot"></i><span class="rail-label">Ofis · Kod</span></nav>
     <main class="right">
       <div class="tabs right-tabs">
-        <button id="toggleOffice" class="tab-icon" title="Ofisi gizle / göster (⌘\)">◧</button>
         <button data-rtab="terminal" class="on">▮ Terminal</button>
         <button data-rtab="board">▮ Görevler <span id="taskCount" class="muted"></span></button>
         <button data-rtab="reports">▮ Raporlar <span id="reportCount" class="muted"></span></button>
@@ -60,6 +64,8 @@
         <button data-rtab="browser">▮ Tarayıcı</button>
         <button data-rtab="hub">▮ Hub</button>
         <span class="spacer drag"></span>
+        <button id="tabNewShell" class="tab-icon" title="Yeni terminal">＋</button>
+        <button id="tabSplit" class="tab-icon" title="Odaktaki terminali yana böl">◫</button>
         <button id="bellBtn" class="tab-icon bell" title="Bildirimler">🔔<span class="badge"></span></button>
       </div>
       <div id="notifyPanel" class="notify-panel hidden"></div>

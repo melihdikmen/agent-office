@@ -15,6 +15,9 @@ const { courier, OWNER_TAG } = require('./courier');
 const { startMcp } = require('./mcp');
 const { Notifier } = require('./notify');
 const { ENGINES, findBin } = require('./engines');
+const worktree = require('./worktree');
+const updates = require('./updates');
+const changelog = require('./changelog');
 const scanner = require('./scanner');
 
 app.setName('Agent Office');
@@ -107,6 +110,7 @@ async function createWindow() {
       guests,
       handsOff: !!store.data.handsOff,
       notify: notifier.view(),
+      app: { version: app.getVersion(), lastSeen: store.data.lastSeenVersion || null, tourDone: !!store.data.tourDone, lang: store.data.lang || 'tr', changelog: changelog.slice(0, 12), updateFeed: store.data.updateFeed || '', update: store.data.updateResult || null },
       presets: { engines: Object.fromEntries(Object.entries(ENGINES).map(([k, e]) => [k, { label: e.label, models: e.models, hint: e.modelHint || '', installed: k === 'claude' || !!findBin(e.bin, envPath) }])), roles: ROLE_PRESETS, models: MODELS, permissionModes: PERMISSION_MODES, statuses: STATUSES },
       integrations: integrations.list(),
       claudeBin, home: os.homedir(), mcpPort: mcp.port,
@@ -248,6 +252,26 @@ async function createWindow() {
   H('task-update', ({ id, patch }) => board.update(need(), id, patch, 'user').id);
   H('task-done', ({ id, report }) => board.done(need(), id, report || { summary: 'Sahip kapattı.' }, 'user').id);
   H('task-remove', ({ id }) => { board.remove(need(), id); return true; });
+  const wtOf = (id) => { const ws = need(); const w = ws.workers.find((x) => x.id === id); if (!w) throw new Error('Çalışan yok'); return { ws, w }; };
+  H('worktree-status', ({ id }) => { const { ws, w } = wtOf(id); return worktree.status(ws, w); });
+  H('worktree-commit', ({ id, message }) => { const { w } = wtOf(id); const r = worktree.commit(w, message); push(); return r; });
+  H('worktree-merge', ({ id }) => { const { ws, w } = wtOf(id); const r = worktree.merge(ws, w); push(); return r; });
+  H('worktree-remove', ({ id, deleteBranch }) => { const { ws, w } = wtOf(id); workers.stop(ws, id); worktree.remove(ws, w, { deleteBranch: !!deleteBranch }); w.worktree = false; store.save(); push(); return true; });
+  H('app-ack', ({ tour, lang }) => { store.data.lastSeenVersion = app.getVersion(); if (tour) store.data.tourDone = true; if (lang) store.data.lang = lang === 'en' ? 'en' : 'tr'; store.save(); push(); return true; });
+  H('open-url', ({ url }) => { if (/^https?:\/\//i.test(url || '')) shell.openExternal(url); return true; });
+  const runUpdateCheck = async (feed, quiet) => {
+    try {
+      const r = await updates.check(feed, app.getVersion());
+      store.data.updateResult = { ...r, checkedAt: Date.now() };
+      if (r.newer && !quiet) send('ev:update', r);
+      if (r.newer && quiet && store.data.updateNotified !== r.version) { store.data.updateNotified = r.version; send('ev:update', r); }
+      store.save(); push();
+      return store.data.updateResult;
+    } catch (e) { if (!quiet) return { error: e.message }; return null; }
+  };
+  H('update-check', async ({ feed }) => { if (feed !== undefined) { store.data.updateFeed = String(feed).trim(); store.save(); } return runUpdateCheck(store.data.updateFeed, false); });
+  setInterval(() => { if (store.data.updateFeed) runUpdateCheck(store.data.updateFeed, true); }, 6 * 3600 * 1000);
+  setTimeout(() => { if (store.data.updateFeed) runUpdateCheck(store.data.updateFeed, true); }, 15000);
   H('notify-set', (p) => { const r = notifier.setPrefs(p); push(); return r; });
   H('notify-read', ({ id }) => { notifier.read(id); push(); return true; });
   H('notify-clear', () => { notifier.clear(); push(); return true; });

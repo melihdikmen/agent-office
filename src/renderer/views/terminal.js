@@ -20,11 +20,12 @@ export class Panes {
     this.root = root;
     this.api = api;
     this.onFocus = onFocus; this.onClose = onClose; this.onMove = onMove;
-    this.tree = null;                 // { leaf: termId } | { dir: 'row'|'col', ratio, a, b }
+    // Tab groups: each group is its own split layout { leaf: termId } | { dir: 'row'|'col', ratio, a, b };
+    // terminals of hidden groups stay alive, only the active group is on screen.
+    this.groups = [{ id: 'g1', name: 'Terminal', tree: null, focused: null, maximized: null }];
+    this.active = 0;
     this.terms = new Map();           // termId → { term, fit, el, info }
     this.size = 'M';
-    this.focused = null;
-    this.maximized = null;
     this.meta = new Map();            // termId → snapshot from main
     this.workersById = new Map();
     this.key = null;                  // workspace id the layout is saved under
@@ -34,6 +35,46 @@ export class Panes {
     window.addEventListener('resize', () => this.fitAll());
     root.addEventListener('dragover', (e) => { if (Panes.drag && !this.tree) e.preventDefault(); });          // empty area accepts a pane
     root.addEventListener('drop', (e) => { const d = Panes.drag; if (d && !this.tree && d.owner !== this) { e.preventDefault(); Panes.drag = null; document.querySelectorAll('.panes').forEach((r) => r.classList.remove('dragging')); this.receive(d.owner, d.id, null); } });
+  }
+
+  get g() { return this.groups[this.active]; }
+  get tree() { return this.g.tree; }
+  set tree(v) { this.g.tree = v; }
+  get focused() { return this.g.focused; }
+  set focused(v) { this.g.focused = v; }
+  get maximized() { return this.g.maximized; }
+  set maximized(v) { this.g.maximized = v; }
+  groupOf(id) { return this.groups.findIndex((g) => this.leaves(g.tree).includes(id)); }
+  setActive(i) { if (i >= 0 && i < this.groups.length && i !== this.active) { this.active = i; this.save(); this.render(); const f = this.focused; if (f) setTimeout(() => this.terms.get(f)?.term.focus(), 0); } }
+  addGroup() { this.groups.push({ id: `g${Date.now().toString(36)}`, name: `Grup ${this.groups.length + 1}`, tree: null, focused: null, maximized: null }); this.active = this.groups.length - 1; this.save(); this.render(); }
+  renameGroup(i) { const n = prompt('Grup adı', this.groups[i].name); if (n && n.trim()) { this.groups[i].name = n.trim().slice(0, 24); this.save(); this.render(); } }
+  // Closing a group never kills terminals: its panes move to the neighbouring group.
+  closeGroup(i) {
+    if (this.groups.length < 2) return;
+    const to = i > 0 ? i - 1 : 1;
+    const target = this.groups[to];
+    for (const id of this.leaves(this.groups[i].tree)) this.placeInGroup(id, target, false);
+    this.groups.splice(i, 1);
+    this.active = this.groups.indexOf(target);
+    this.save(); this.render();
+  }
+  placeInGroup(id, g, removeFirst = true) {
+    if (removeFirst) this.removeLeaf(id);
+    const last = this.leaves(g.tree).pop();
+    if (!g.tree) g.tree = { leaf: id };
+    else {
+      const parent = this.findParent(last, g.tree);
+      const split = { dir: 'row', ratio: 0.5, a: { leaf: last }, b: { leaf: id } };
+      if (!parent) g.tree = split; else if (parent.a.leaf === last) parent.a = split; else parent.b = split;
+    }
+    g.focused = id;
+  }
+  moveToGroup(id, gi) {
+    const from = this.groupOf(id);
+    if (from < 0 || from === gi || !this.groups[gi]) return;
+    this.placeInGroup(id, this.groups[gi]);
+    this.active = gi;
+    this.save(); this.render();
   }
 
   setMeta(list, workers) {
@@ -50,7 +91,7 @@ export class Panes {
 
   save() {
     if (!this.key || !this.restored) return;
-    try { localStorage.setItem(`ao.panes.${this.key}`, JSON.stringify({ tree: this.tree, focused: this.focused })); } catch { /* storage blocked */ }
+    try { localStorage.setItem(`ao.panes.${this.key}`, JSON.stringify({ groups: this.groups.map((g) => ({ id: g.id, name: g.name, tree: g.tree, focused: g.focused })), active: this.active })); } catch { /* storage blocked */ }
   }
 
   // Bring back the saved layout once the terminals exist; dead panes are pruned.
@@ -58,15 +99,23 @@ export class Panes {
     this.restored = true;
     let saved = null;
     try { saved = parseSaved(localStorage.getItem(`ao.panes.${this.key}`)); } catch { /* storage blocked */ }
-    const tree = this.tree ? null : pruneTree(saved?.tree, new Set(this.meta.keys()));
-    if (!tree) { this.render(); return; }
-    this.tree = tree;
-    const ids = this.leaves();
+    if (this.groups.some((g) => g.tree)) { this.render(); return; }
+    const raw = saved?.groups?.length ? saved.groups : saved?.tree ? [{ id: 'g1', name: 'Terminal', tree: saved.tree, focused: saved.focused }] : [];
+    const alive = new Set(this.meta.keys()), seen = new Set();
+    const groups = raw.slice(0, 12).map((g, i) => {
+      const tree = pruneTree(g.tree, new Set([...alive].filter((id) => !seen.has(id))));
+      for (const id of this.leaves(tree)) seen.add(id);
+      return { id: String(g.id || `g${i}`), name: String(g.name || `Grup ${i + 1}`).slice(0, 24), tree, focused: null, maximized: null, want: g.focused };
+    });
+    if (!groups.some((g) => g.tree)) { this.render(); return; }
+    for (const g of groups) { const l = this.leaves(g.tree); g.focused = l.includes(g.want) ? g.want : l[0] || null; delete g.want; }
+    this.groups = groups;
+    this.active = Math.max(0, Math.min(groups.length - 1, Number(saved.active) || 0));
+    const ids = groups.flatMap((g) => this.leaves(g.tree));
     for (const id of ids) if (!this.terms.has(id)) this.attach(id);
-    this.focused = ids.includes(saved.focused) ? saved.focused : ids[0];
     this.render();
     for (const id of ids) { const buf = await this.api.termBuffer({ id }); if (buf) this.terms.get(id)?.term.write(buf); }
-    this.focus(this.focused);
+    if (this.focused) this.focus(this.focused);
   }
 
   has(id) { return this.terms.has(id); }
@@ -125,6 +174,8 @@ export class Panes {
   }
   // Take a leaf out of the layout tree (the terminal itself stays alive).
   removeLeaf(id) {
+    const gi = this.groupOf(id);
+    if (gi >= 0 && gi !== this.active) { const keep = this.active; this.active = gi; try { this.removeLeaf(id); } finally { this.active = keep; } return; }
     const parent = this.findParent(id);
     if (!parent) { if (this.tree?.leaf === id) this.tree = null; return; }
     const keep = parent.a.leaf === id ? parent.b : parent.a;
@@ -186,7 +237,7 @@ export class Panes {
     this.onClose?.(id);
   }
 
-  focus(id) { this.focused = id; this.save(); this.updateHeaders(); setTimeout(() => this.terms.get(id)?.term.focus(), 0); }
+  focus(id) { const gi = this.groupOf(id); if (gi >= 0 && gi !== this.active) { this.active = gi; this.render(); } this.focused = id; this.save(); this.updateHeaders(); setTimeout(() => this.terms.get(id)?.term.focus(), 0); }
   setSize(s) { this.size = s; for (const t of this.terms.values()) t.term.options.fontSize = SIZES[s]; this.fitAll(); }
   toggleMax(id) { this.maximized = this.maximized === id ? null : id; this.render(); }
 
@@ -196,11 +247,46 @@ export class Panes {
     this.save();
     for (const t of this.terms.values()) if (t.el) t.el.remove();
     root.innerHTML = '';
-    if (!this.tree) { root.innerHTML = '<div class="panes-empty">Bir çalışanın sprite\'ına çift tıkla ya da <b>+ shell</b> ile terminal aç.</div>'; return; }
+    root.classList.add('grouped');
+    root.append(this.groupBar());
+    const area = document.createElement('div');
+    area.className = 'pane-area';
+    root.append(area);
+    if (!this.tree) { area.innerHTML = '<div class="panes-empty">Bir çalışanın karakterine çift tıkla ya da <b>+ shell</b> ile terminal aç.</div>'; return; }
     const node = this.maximized && this.terms.has(this.maximized) ? { leaf: this.maximized } : this.tree;
-    root.append(this.build(node));
+    area.append(this.build(node));
     this.fitAll();
     this.updateHeaders();
+  }
+
+  groupBar() {
+    const bar = document.createElement('div');
+    bar.className = 'pane-groups';
+    this.groups.forEach((g, i) => {
+      const n = this.leaves(g.tree).length;
+      const b = document.createElement('button');
+      b.className = `pg${i === this.active ? ' on' : ''}`;
+      b.innerHTML = `<span>${esc(g.name)}</span><i>${n}</i>${this.groups.length > 1 ? '<u data-x title="Grubu kapat (terminaller yanındaki gruba taşınır)">✕</u>' : ''}`;
+      b.title = 'Tıkla: aç · çift tıkla: yeniden adlandır · terminal başlığını buraya sürükle: gruba taşı';
+      b.onclick = (e) => { if (e.target.closest('[data-x]')) this.closeGroup(i); else this.setActive(i); };
+      b.ondblclick = () => this.renameGroup(i);
+      b.addEventListener('dragover', (e) => { if (Panes.drag) { e.preventDefault(); b.classList.add('over'); } });
+      b.addEventListener('dragleave', () => b.classList.remove('over'));
+      b.addEventListener('drop', async (e) => {
+        e.preventDefault(); b.classList.remove('over');
+        const d = Panes.drag; Panes.drag = null;
+        document.querySelectorAll('.panes').forEach((r) => r.classList.remove('dragging'));
+        if (!d) return;
+        if (d.owner === this) this.moveToGroup(d.id, i);
+        else { await d.owner.close(d.id, { kill: false }); this.meta = d.owner.meta; this.active = i; await this.open(d.id); }
+      });
+      bar.append(b);
+    });
+    const add = document.createElement('button');
+    add.className = 'pg add'; add.textContent = '＋'; add.title = 'Yeni terminal grubu';
+    add.onclick = () => this.addGroup();
+    bar.append(add);
+    return bar;
   }
 
   build(n) {

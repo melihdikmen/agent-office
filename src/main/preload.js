@@ -5,7 +5,7 @@ const channels = ['state', 'open-path', 'choose-dir',
   'ws-create', 'ws-switch', 'ws-update', 'ws-remove',
   'worker-create', 'worker-update', 'worker-remove', 'worker-start', 'worker-stop', 'worker-send', 'worker-memory',
   'term-shell', 'term-write', 'term-paste', 'term-resize', 'term-kill', 'term-buffer',
-  'task-create', 'task-update', 'task-done', 'task-remove', 'hands-off', 'notify-set', 'notify-read', 'notify-clear',
+  'task-create', 'task-update', 'task-done', 'task-remove', 'hands-off', 'notify-set', 'app-ack', 'open-url', 'update-check', 'worktree-status', 'worktree-commit', 'worktree-merge', 'worktree-remove', 'notify-read', 'notify-clear',
   'memory-graph', 'memory-search', 'watch-list', 'watch-status', 'watch-diff', 'integration-set',
   'guest-adopt', 'guest-message', 'guest-terminal'];
 
