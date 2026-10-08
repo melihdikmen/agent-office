@@ -42,6 +42,7 @@ class Board extends EventEmitter {
   notifyAssigned(ws, task, by) {
     const w = ws.workers.find((x) => x.id === task.assignee);
     if (!w || w.id === by) return;
+    this.emit('assigned', { wsId: ws.id, task, by: this.who(ws, by), assignee: w.name });
     const text = `[Pano] Yeni görev ${task.id} (${this.who(ws, by)}): ${task.title}${task.details ? `\n${task.details}` : ''}`;
     if (!this.workers.running(w.id)) this.workers.start(ws, w.id);
     this.workers.send(ws, w.id, text);

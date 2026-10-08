@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { id } = require('./store');
+const { ENGINES, findBin, launch, Activity } = require('./engines');
 
 const MODELS = ['haiku', 'sonnet', 'opus', 'fable'];
 const PERMISSION_MODES = ['acceptEdits', 'auto', 'bypassPermissions', 'plan'];
@@ -37,6 +38,7 @@ function briefing(ws, worker, memoryFile) {
     `You are ${worker.name}, the ${worker.role} of this office. Project directory: ${ws.dir}.`,
     'You run in your own terminal; the owner (a human) watches the office, reads the board and the reports, and may type to you directly.',
     '',
+    ...(worker.engine && worker.engine !== 'claude' ? ['The office board tools (board_list, task_create, task_update, task_done, message, memory_note, memory_search, team_list) come from the MCP server named "office". Use them for all board work; if you cannot see them, tell the owner instead of improvising.', ''] : []),
     '## Your role',
     worker.duties || worker.role,
     isLead ? 'You are the lead: when the owner gives a goal, split it into tasks with task_create (assign each to a teammate by name, keep one for yourself, set parent to the goal task), follow progress on the board, and when every part is done close the goal with task_done and a summary report.' : '',
@@ -74,6 +76,9 @@ class Workers extends EventEmitter {
     this.memory = memory;
     this.rt = runtime;                 // { claudeBin, mcp, scanner }
     this.outbox = new Map();           // workerId → texts waiting for Claude to be ready
+    this.activity = new Activity();    // status of non-Claude engines, read from terminal output
+    terminals.on?.('data', ({ id: tid, data }) => { if (tid.startsWith('w:')) this.activity.data(tid, data); });
+    terminals.on?.('exit', ({ id: tid }) => this.activity.stop(tid));
   }
 
   byToken(token) {
@@ -94,13 +99,21 @@ class Workers extends EventEmitter {
     return NAMES.find((n) => !used.has(n.toLowerCase())) || `Ajan${ws.workers.length + 1}`;
   }
 
+  // Claude takes one of its model aliases; the other engines take any model name (or none = their default).
+  modelFor(engine, model) {
+    if (engine === 'claude') return MODELS.includes(model) ? model : 'sonnet';
+    return String(model || '').trim();
+  }
+
   create(ws, def = {}) {
     const worker = {
       id: id(), token: crypto.randomBytes(12).toString('hex'),
       name: String(def.name || '').trim() || this.pickName(ws),
       role: String(def.role || '').trim() || 'Geliştirici',
       duties: String(def.duties || '').trim(),
-      model: MODELS.includes(def.model) ? def.model : 'sonnet',
+      engine: ENGINES[def.engine] ? def.engine : 'claude',
+      model: this.modelFor(ENGINES[def.engine] ? def.engine : 'claude', def.model),
+      extraArgs: String(def.extraArgs || '').trim(), command: String(def.command || '').trim(),
       permissionMode: PERMISSION_MODES.includes(def.permissionMode) ? def.permissionMode : 'auto',
       seed: crypto.randomBytes(4).readUInt32LE(0),
       deskId: def.deskId || null, sessionId: null, created: Date.now(), autostart: true,
@@ -128,7 +141,9 @@ class Workers extends EventEmitter {
     const w = ws.workers.find((x) => x.id === wid);
     if (!w) return null;
     for (const k of ['name', 'role', 'duties', 'deskId']) if (patch[k] !== undefined) w[k] = patch[k];
-    if (MODELS.includes(patch.model)) w.model = patch.model;
+    if (ENGINES[patch.engine] && patch.engine !== w.engine) { w.engine = patch.engine; if (patch.model === undefined) w.model = this.modelFor(w.engine, ''); }
+    if (patch.model !== undefined) w.model = this.modelFor(w.engine || 'claude', patch.model);
+    for (const k of ['extraArgs', 'command']) if (patch[k] !== undefined) w[k] = String(patch[k] || '').trim();
     if (PERMISSION_MODES.includes(patch.permissionMode)) w.permissionMode = patch.permissionMode;
     if (patch.lead) ws.lead = w.id;
     this.store.save();
@@ -146,6 +161,7 @@ class Workers extends EventEmitter {
   }
 
   termId(wid) { return `w:${wid}`; }
+  otherEngine(wid) { for (const ws of this.store.workspaces) { const w = ws.workers.find((x) => x.id === wid); if (w) return !!w.engine && w.engine !== 'claude'; } return false; }
   running(wid) { const t = this.terminals.get(this.termId(wid)); return !!t && t.exited === null; }
 
   start(ws, wid, { cols, rows } = {}) {
@@ -154,6 +170,7 @@ class Workers extends EventEmitter {
     if (!w || !cwd) return null;
     if (this.running(wid)) return this.terminals.snapshot(this.terminals.get(this.termId(wid)));
     const memoryFile = this.memory.ensure(ws, w);
+    if (w.engine && w.engine !== 'claude') return this.startOther(ws, w, cwd, memoryFile, { cols, rows });
     const sessionId = w.sessionId && this.rt.scanner.sessionFile(w.sessionId, cwd) ? w.sessionId : null;
     // --add-dir: the memory folder lives in app data, outside the project; without
     // this every memory read would stop for a permission prompt.
@@ -174,6 +191,25 @@ class Workers extends EventEmitter {
     return snap;
   }
 
+  // Codex / Gemini: no session registry, so a fresh conversation each start (the memory file carries over).
+  startOther(ws, w, cwd, memoryFile, { cols, rows }) {
+    const eng = ENGINES[w.engine];
+    const bin = w.command || findBin(eng.bin, this.rt.envPath);
+    if (!bin) return { error: `${eng.label} bulunamadı. Kurulu değil ya da PATH'te yok; çalışanın detayında "komut" alanına tam yolu yazabilirsin.` };
+    const mcpUrl = this.rt.mcp.urlFor(w.token);
+    const servers = {};
+    for (const [name, c] of Object.entries(this.rt.integrations?.mcpServers() || {})) if (c.url) servers[name] = { httpUrl: c.url, ...(c.headers ? { headers: c.headers } : {}) };
+    let l;
+    try { l = launch(w.engine, { worker: w, cwd, mcpUrl, integrations: servers, prompt: briefing(ws, w, memoryFile), dataDir: this.rt.dataDir }); } catch (e) { return { error: e.message }; }
+    const tid = this.termId(w.id);
+    this.activity.start(tid);
+    const snap = this.terminals.create({ id: tid, kind: 'worker', workerId: w.id, title: w.name, cwd, cmd: bin, args: l.args, env: l.env, cols, rows });
+    w.lastStart = Date.now();
+    this.store.save();
+    this.emit('change', ws.id);
+    return snap;
+  }
+
   stop(ws, wid) {
     const ok = this.terminals.kill(this.termId(wid));
     this.emit('change', ws.id);
@@ -183,7 +219,9 @@ class Workers extends EventEmitter {
   // Claude is ready once it has registered its session (prompt is up).
   ready(wid) {
     const t = this.terminals.get(this.termId(wid));
-    return !!t && t.exited === null && !!this.rt.scanner.registryEntry(t.pid);
+    if (!t || t.exited !== null) return false;
+    if (this.otherEngine(wid)) return this.activity.state(this.termId(wid)).status !== 'starting';
+    return !!this.rt.scanner.registryEntry(t.pid);
   }
 
   // Type a prompt into the worker's terminal and submit it. Text sent while Claude
@@ -219,6 +257,11 @@ class Workers extends EventEmitter {
   view(ws, w) {
     const term = this.terminals.get(this.termId(w.id));
     const running = !!term && term.exited === null;
+    if (running && w.engine && w.engine !== 'claude') {
+      const a = this.activity.state(this.termId(w.id));
+      return { ...w, token: undefined, running, status: a.status === 'offline' ? 'starting' : a.status, waitingFor: a.waitingFor, statusSince: a.since, activity: null, lastAnswer: null, lastActivity: null, ctx: 0,
+        branch: null, recent: [], sends: [], cost: 0, tokens: 0, lead: ws.lead === w.id, terminalId: this.termId(w.id) };
+    }
     const reg = running ? this.rt.scanner.registryEntry(term.pid) : null;
     if (reg?.sessionId && reg.sessionId !== w.sessionId) {
       // --resume gives the conversation a new session id; remember the old one so a leftover
@@ -226,7 +269,7 @@ class Workers extends EventEmitter {
       if (w.sessionId) w.pastSessions = [...(w.pastSessions || []).filter((x) => x !== w.sessionId), w.sessionId].slice(-20);
       w.sessionId = reg.sessionId; this.store.save();
     }
-    const file = w.sessionId ? this.rt.scanner.sessionFile(w.sessionId, w.cwd || ws.dir) : null;
+    const file = w.sessionId && (!w.engine || w.engine === 'claude') ? this.rt.scanner.sessionFile(w.sessionId, w.cwd || ws.dir) : null;
     const s = file ? this.rt.scanner.summarizeSession(file) : null;
     const cost = file ? this.rt.scanner.costState(file) : null;
     let status = 'offline';

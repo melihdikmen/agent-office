@@ -13,6 +13,8 @@ const { Watch } = require('./watch');
 const { Integrations } = require('./integrations');
 const { courier, OWNER_TAG } = require('./courier');
 const { startMcp } = require('./mcp');
+const { Notifier } = require('./notify');
+const { ENGINES, findBin } = require('./engines');
 const scanner = require('./scanner');
 
 app.setName('Agent Office');
@@ -75,7 +77,7 @@ async function createWindow() {
   // helper sessions the app spawns itself (couriers) — never shown as guests
   const runtime = { children: new Set() };
   const integrations = new Integrations(store);
-  const workers = new Workers(store, terminals, memory, { claudeBin, mcp, scanner, integrations });
+  const workers = new Workers(store, terminals, memory, { claudeBin, mcp, scanner, integrations, envPath, dataDir: app.getPath('userData') });
   workersRef.current = workers;
   const board = new Board(store, workers);
 
@@ -104,7 +106,8 @@ async function createWindow() {
       terminals: terminals.list(),
       guests,
       handsOff: !!store.data.handsOff,
-      presets: { roles: ROLE_PRESETS, models: MODELS, permissionModes: PERMISSION_MODES, statuses: STATUSES },
+      notify: notifier.view(),
+      presets: { engines: Object.fromEntries(Object.entries(ENGINES).map(([k, e]) => [k, { label: e.label, models: e.models, hint: e.modelHint || '', installed: k === 'claude' || !!findBin(e.bin, envPath) }])), roles: ROLE_PRESETS, models: MODELS, permissionModes: PERMISSION_MODES, statuses: STATUSES },
       integrations: integrations.list(),
       claudeBin, home: os.homedir(), mcpPort: mcp.port,
     };
@@ -112,12 +115,20 @@ async function createWindow() {
   const push = () => send('ev:state', state());
   workers.on('change', push);
   board.on('change', push);
-  board.on('report', ({ task }) => {
-    send('ev:report', task);
-    if (Notification.isSupported() && (!win || win.isDestroyed() || !win.isFocused())) {
-      new Notification({ title: `${task.id} tamamlandı`, body: `${task.title} — ${task.report?.summary?.slice(0, 120) || ''}` }).show();
-    }
+  const notifier = new Notifier({
+    store, send, win: () => win,
+    onOpen: (ref) => {
+      if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
+      if (ref.wsId && store.data.activeWorkspace !== ref.wsId && store.workspace(ref.wsId)) { store.data.activeWorkspace = ref.wsId; store.save(); push(); }
+      send('ev:notify-open', ref);
+    },
   });
+  board.on('report', ({ wsId, task }) => {
+    send('ev:report', task);
+    const ws = store.workspace(wsId);
+    if (ws) notifier.taskDone(ws, task, board.who(ws, task.report?.by));
+  });
+  board.on('assigned', ({ wsId, task, by, assignee }) => { const ws = store.workspace(wsId); if (ws) notifier.taskAssigned(ws, task, by, assignee); });
   board.on('message', (m) => send('ev:message', m));
   terminals.on('data', (p) => send('ev:pty-data', p));
   terminals.on('exit', (p) => { send('ev:pty-exit', p); push(); });
@@ -146,22 +157,16 @@ async function createWindow() {
   const guest = (id) => guests.find((g) => g.id === id);
 
   // Status loop: Claude's own registry says busy / idle / waiting per worker.
-  const waiting = new Set();
   const loop = async () => {
     if (guestTick++ % 2 === 0) await scanGuests();
     const ws = activeWs();
     if (ws) {
       watch.start(ws.dir);
       const views = ws.workers.map((w) => workers.view(ws, w));
-      for (const v of views) {
-        if (v.status === 'waiting' && !waiting.has(v.id) && Notification.isSupported() && (!win || win.isDestroyed() || !win.isFocused())) {
-          new Notification({ title: `${v.name} seni bekliyor`, body: v.waitingFor || 'onay ya da yanıt gerekiyor' }).show();
-        }
-        if (v.status === 'waiting') waiting.add(v.id); else waiting.delete(v.id);
-      }
       board.tick(ws, views);
       workers.flush(ws);
     }
+    for (const o of store.workspaces) notifier.tick(o, o.workers.map((w) => workers.view(o, w)));   // every project, not only the open one
     push();
     setTimeout(loop, win && !win.isDestroyed() && win.isVisible() && !win.isMinimized() ? 2000 : 8000);
   };
@@ -243,6 +248,9 @@ async function createWindow() {
   H('task-update', ({ id, patch }) => board.update(need(), id, patch, 'user').id);
   H('task-done', ({ id, report }) => board.done(need(), id, report || { summary: 'Sahip kapattı.' }, 'user').id);
   H('task-remove', ({ id }) => { board.remove(need(), id); return true; });
+  H('notify-set', (p) => { const r = notifier.setPrefs(p); push(); return r; });
+  H('notify-read', ({ id }) => { notifier.read(id); push(); return true; });
+  H('notify-clear', () => { notifier.clear(); push(); return true; });
   H('hands-off', ({ on }) => { store.data.handsOff = !!on; store.save(); push(); return !!on; });
 
   H('integration-set', ({ id, on, secret, env }) => integrations.set(id, { on, secret, env }));

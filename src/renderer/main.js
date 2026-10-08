@@ -4,6 +4,7 @@
 import { Office } from './office/office.js';
 import { SHIRTS } from './office/sprites.js';
 import { Panes } from './views/terminal.js';
+import { NotifyView } from './views/notify.js';
 import { BoardView } from './views/board.js';
 import { ReportsView } from './views/reports.js';
 import { MemoryView } from './views/memory.js';
@@ -42,7 +43,19 @@ const office = new Office($('#office'), {
   onLayout: (layout) => { if (S.ws) api.wsUpdate({ id: S.ws.id, layout }); },
   onDesk: (desk) => deskDialog(desk),
 });
-const panes = new Panes($('#panes'), api, { onFocus: () => {}, onClose: () => {} });
+const moveTerm = async (id, from) => { const to = from === panes ? panes2 : panes; await from.close(id, { kill: false }); to.meta = from.meta; await to.open(id); };
+const panes = new Panes($('#panes'), api, { onFocus: () => {}, onClose: () => {}, onMove: moveTerm });
+const panes2 = new Panes($('#panes2'), api, { onFocus: () => {}, onClose: () => {}, onMove: moveTerm });   // terminals shown in the office area
+const leftTermOpen = () => !$('#leftTerm').classList.contains('hidden');
+const openIn = async (id) => { const own = [panes, panes2].find((p) => p.has(id)); if (own) { if (own === panes) setRTab('terminal'); return own.focus(id); } return (leftTermOpen() ? panes2 : panes).open(id); };
+const notify = new NotifyView($('#bellBtn'), $('#notifyPanel'), api, { onOpen: (ref) => openRef(ref) });
+// Jump to what a notification is about: a task card, or the agent (terminal for one that waits).
+async function openRef(ref) {
+  if (!ref) return;
+  if (ref.wsId && S.ws?.id !== ref.wsId) { await api.wsSwitch({ id: ref.wsId }); S.layoutFor = null; await new Promise((r) => setTimeout(r, 400)); }
+  if (ref.type === 'task') { setRTab('board'); board.open = ref.id; board.render(); }
+  else if (ref.type === 'worker') { select(ref.id); openWorkerTerminal(ref.id); }
+}
 const board = new BoardView($('#rtab-board'), api, { onSelectWorker: select });
 const reports = new ReportsView($('#rtab-reports'), { onOpenTask: (id) => { setRTab('board'); board.open = id; board.render(); } });
 const memory = new MemoryView($('#rtab-memory'), api);
@@ -75,15 +88,16 @@ function apply(st) {
     office.setWorkers(workers, S.guests);
     bubbles(workers);
   } else office.setWorkers([], S.guests);
-  panes.setKey(ws?.id);
-  panes.setMeta(st.terminals, workers);
+  notify.set(st.notify);
+  panes.setKey(ws?.id); panes2.setKey(ws?.id ? `${ws.id}.L` : null);
+  panes.setMeta(st.terminals, workers); panes2.setMeta(st.terminals, workers);
   board.set(ws?.tasks || [], workers);
   reports.set(ws?.reports || [], workers);
   memory.setWorkers(workers);
   if (JSON.stringify(st.integrations) !== JSON.stringify(S.integrations)) { S.integrations = st.integrations; hub.setItems(st.integrations || []); }
   const pick = $('#agentPick');
   const cur = pick.value;
-  const shells = st.terminals.filter((t) => t.kind === 'shell' && t.exited == null && !panes.has(t.id));
+  const shells = st.terminals.filter((t) => t.kind === 'shell' && t.exited == null && !panes.has(t.id) && !panes2.has(t.id));
   pick.innerHTML = '<option value="">⚇ agent</option>' + workers.map((w) => `<option value="${w.id}">${esc(w.name)} · ${esc(w.role)}${w.running ? '' : ' (uyuyor)'}</option>`).join('')
     + shells.map((t) => `<option value="term:${t.id}">⌨ ${esc(t.title)} (açık)</option>`).join('');
   pick.value = cur;
@@ -217,13 +231,13 @@ async function openWorkerTerminal(id) {
   const w = (S.ws?.workers || []).find((x) => x.id === id);
   if (!w) return;
   if (!w.running) { const r = await startWorker(id); if (!r) return; }
-  setRTab('terminal');
+  if (!leftTermOpen()) setRTab('terminal');
   select(id);
-  await panes.open(`w:${id}`);
+  await openIn(`w:${id}`);
 }
-$('#agentPick').onchange = (e) => { const v = e.target.value; e.target.value = ''; if (!v) return; if (v.startsWith('term:')) { setRTab('terminal'); panes.open(v.slice(5)); } else openWorkerTerminal(v); };
-$('#addShell').onclick = async () => { const snap = await api.termShell({ cols: 100, rows: 30 }); if (snap?.id) { panes.meta.set(snap.id, snap); panes.open(snap.id); } };
-$('#termSize').onclick = (e) => { const s = e.target.dataset.size; if (!s) return; $$('#termSize button').forEach((b) => b.classList.toggle('on', b.dataset.size === s)); panes.setSize(s); };
+$('#agentPick').onchange = (e) => { const v = e.target.value; e.target.value = ''; if (!v) return; if (v.startsWith('term:')) { if (!leftTermOpen()) setRTab('terminal'); openIn(v.slice(5)); } else openWorkerTerminal(v); };
+$('#addShell').onclick = async () => { const snap = await api.termShell({ cols: 100, rows: 30 }); if (snap?.id) { panes.meta.set(snap.id, snap); panes2.meta.set(snap.id, snap); (leftTermOpen() ? panes2 : panes).open(snap.id); } };
+$('#termSize').onclick = (e) => { const s = e.target.dataset.size; if (!s) return; $$('#termSize button').forEach((b) => b.classList.toggle('on', b.dataset.size === s)); panes.setSize(s); panes2.setSize(s); };
 $('#autopilot').onclick = () => api.handsOff({ on: !S.st?.handsOff });
 $('#zoomIn').onclick = () => office.zoom(1);
 $('#zoomIn').ondblclick = () => office.fit(true);
@@ -275,6 +289,13 @@ function openDialog(html, onSubmit) {
   dlg.showModal();
 }
 const roleOptions = (cur) => (S.st?.presets.roles || []).map((r) => `<option value="${esc(r.role)}" data-duties="${esc(r.duties)}" ${r.role === cur ? 'selected' : ''}>${esc(r.role)}</option>`).join('') + `<option value="__custom" ${cur && !(S.st?.presets.roles || []).some((r) => r.role === cur) ? 'selected' : ''}>Özel…</option>`;
+const engineOptions = (cur = 'claude') => Object.entries(S.st?.presets.engines || { claude: { label: 'Claude Code', installed: true } }).map(([k, e]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(e.label)}${e.installed ? '' : ' (kurulu değil)'}</option>`).join('');
+// Claude picks a model alias from a list; Codex and Gemini take any model name (empty = the CLI default).
+const modelField = (engine, cur) => {
+  const e = S.st?.presets.engines?.[engine];
+  if (engine === 'claude' || !e) return `<select name="model">${modelOptions(cur)}</select>`;
+  return `<input name="model" value="${esc(cur && !(S.st?.presets.models || []).includes(cur) ? cur : '')}" placeholder="${esc(e.hint)}">`;
+};
 const modelOptions = (cur = 'sonnet') => (S.st?.presets.models || []).map((m) => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m}</option>`).join('');
 const permOptions = (cur = 'auto') => [['acceptEdits', 'Dosya düzenler, komutlarda sorar'], ['auto', 'Otomatik (auto)'], ['bypassPermissions', 'Hiç sormaz (riskli)'], ['plan', 'Salt okuma (plan)']].map(([k, l]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${l}</option>`).join('');
 // (auto is the default: the classifier approves routine commands, so a crew keeps moving)
@@ -285,7 +306,11 @@ function workerDialog(w = null) {
       <label>Rol <select name="rolePreset">${roleOptions(w?.role)}</select></label></div>
     <label class="custom-role ${w && !(S.st?.presets.roles || []).some((r) => r.role === w.role) ? '' : 'hidden'}">Rol adı <input name="role" value="${esc(w?.role || '')}"></label>
     <label>Görev tanımı <textarea name="duties" rows="3">${esc(w?.duties || '')}</textarea></label>
-    <div class="grid2"><label>Model <select name="model">${modelOptions(w?.model)}</select></label><label>İzinler <select name="permissionMode">${permOptions(w?.permissionMode)}</select></label></div>
+    <div class="grid2"><label>Motor <select name="engine">${engineOptions(w?.engine)}</select></label><label>İzinler <select name="permissionMode">${permOptions(w?.permissionMode)}</select></label></div>
+    <label>Model <span class="model-slot">${modelField(w?.engine || 'claude', w?.model)}</span></label>
+    <details class="adv" ${w?.extraArgs || w?.command ? 'open' : ''}><summary>Gelişmiş (Codex / Gemini)</summary>
+      <label>Komut yolu <input name="command" value="${esc(w?.command || '')}" placeholder="boşsa PATH'te aranır"></label>
+      <label>Ek argümanlar <input name="extraArgs" value="${esc(w?.extraArgs || '')}" placeholder="örn. --search"></label></details>
     <label class="row"><input type="checkbox" name="lead" ${w?.lead ? 'checked' : ''}> Lider (hedefleri böler ve dağıtır)</label>
     ${w ? '' : '<label class="row"><input type="checkbox" name="start" checked> Hemen başlat</label>'}
     ${w ? `<div class="meta"><span>durum: ${STATUS_TR[w.status]}</span><span>$${(w.cost || 0).toFixed(2)}</span><span>${Math.round((w.tokens || 0) / 1000)}k tok</span></div>
@@ -295,7 +320,7 @@ function workerDialog(w = null) {
     const preset = fd.get('rolePreset');
     const role = preset === '__custom' ? String(fd.get('role')).trim() : preset;
     const presetDuties = $('option:checked', form.rolePreset)?.dataset.duties || '';
-    const def = { name: fd.get('name'), role, duties: String(fd.get('duties')).trim() || presetDuties, model: fd.get('model'), permissionMode: fd.get('permissionMode'), lead: !!fd.get('lead') };
+    const def = { name: fd.get('name'), role, duties: String(fd.get('duties')).trim() || presetDuties, model: fd.get('model'), engine: fd.get('engine'), command: fd.get('command'), extraArgs: fd.get('extraArgs'), permissionMode: fd.get('permissionMode'), lead: !!fd.get('lead') };
     if (w) { await api.workerUpdate({ id: w.id, patch: def }); return; }
     const id = await api.workerCreate(def);
     if (id?.error) { toast(id.error, 'err'); return false; }
@@ -303,6 +328,7 @@ function workerDialog(w = null) {
     toast(`${def.name || 'Yeni çalışan'} işe alındı`);
   });
   const form = $('form', dlgBody);
+  form.engine.onchange = () => { $('.model-slot', form).innerHTML = modelField(form.engine.value, ''); };
   form.rolePreset.onchange = () => { const custom = form.rolePreset.value === '__custom'; $('.custom-role', form).classList.toggle('hidden', !custom); if (!custom) form.duties.value = $('option:checked', form.rolePreset).dataset.duties || ''; };
   dlgBody.onclick = async (e) => {
     const act = e.target.closest('[data-w]')?.dataset.w;
@@ -411,10 +437,34 @@ function wsMenu() {
 $('#wsMenuBtn').onclick = wsMenu;
 $('#wsName').onclick = wsMenu;
 
+// ---- swap the 3D office area for the terminals ------------------------------------
+function swapTerminals(toOffice) {
+  $('#leftTerm').classList.toggle('hidden', !toOffice);
+  $('#officeWrap').classList.toggle('hidden', toOffice);
+  $('#swapBtn').classList.toggle('on', toOffice);
+  $('#swapBtn').textContent = toOffice ? '◫ 3B Ofis' : '▮ Terminal';
+  if (toOffice) setLTab('office'); else setTimeout(() => office.fit(true), 0);
+  try { localStorage.setItem('ao.termInOffice', toOffice ? '1' : ''); } catch { /* storage unavailable */ }
+  panes2.fitAll(); panes.fitAll();
+}
+$('#swapBtn').onclick = () => swapTerminals(!leftTermOpen());
+try { if (localStorage.getItem('ao.termInOffice')) swapTerminals(true); } catch { /* storage unavailable */ }
+
+// ---- show / hide the office column ---------------------------------------------
+function setOfficeHidden(hide) {
+  document.querySelector('.app').classList.toggle('no-left', hide);
+  try { localStorage.setItem('ao.officeHidden', hide ? '1' : ''); } catch { /* storage unavailable */ }
+  if (!hide) setTimeout(() => office.fit(), 0);
+  panes.fitAll(); panes2.fitAll();
+}
+$('#toggleOffice').onclick = () => setOfficeHidden(!document.querySelector('.app').classList.contains('no-left'));
+document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); $('#toggleOffice').click(); } });
+try { if (localStorage.getItem('ao.officeHidden')) setOfficeHidden(true); } catch { /* storage unavailable */ }
+
 // ---- resizer -------------------------------------------------------------------
 $('#resizer').addEventListener('pointerdown', (e) => {
   const start = e.clientX, w0 = $('#left').getBoundingClientRect().width;
-  const move = (ev) => { document.documentElement.style.setProperty('--left', `${Math.max(380, Math.min(window.innerWidth - 420, w0 + ev.clientX - start))}px`); office.fit(); panes.fitAll(); };
+  const move = (ev) => { document.documentElement.style.setProperty('--left', `${Math.max(380, Math.min(window.innerWidth - 420, w0 + ev.clientX - start))}px`); office.fit(); panes.fitAll(); panes2.fitAll(); };
   const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
 });
@@ -422,7 +472,9 @@ $('#resizer').addEventListener('pointerdown', (e) => {
 // ---- wiring --------------------------------------------------------------------
 api.on('state', apply);
 api.on('message', (m) => { office.say(m.to, `✉ ${m.text.slice(0, 30)}`, 5); });
-api.on('report', (t) => { toast(`${t.id} tamamlandı: ${t.title}`); if (S.rtab === 'reports') reports.render(); });
+api.on('report', () => { if (S.rtab === 'reports') reports.render(); });
+api.on('notify', (n) => toast(`${n.title} — ${n.subtitle}\n${n.body.split('\n')[0]}`, n.warn ? 'err' : ''));
+api.on('notify-open', (ref) => openRef(ref));
 api.on('log', () => {});
 document.addEventListener('keydown', (e) => {
   if (dlg.open) return;
@@ -430,4 +482,4 @@ document.addEventListener('keydown', (e) => {
 });
 api.state().then((st) => { apply(st); if (!st.active) $('#noWs').classList.remove('hidden'); });
 
-window.__office = { S, office, panes, board, select, openWorkerTerminal, setRTab, setLTab, workerDialog, teamDialog, manageDialog, toast };
+window.__office = { S, office, panes, panes2, board, select, openWorkerTerminal, setRTab, setLTab, workerDialog, teamDialog, manageDialog, toast };

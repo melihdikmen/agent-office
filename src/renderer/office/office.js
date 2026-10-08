@@ -80,7 +80,7 @@ export class Office {
     let last = performance.now();
     const loop = (now) => {
       requestAnimationFrame(loop);
-      if (document.hidden || !this.cv.isConnected) { last = now; return; }
+      if (document.hidden || !this.cv.isConnected || !this.container.offsetWidth) { last = now; return; }
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       this.t += dt;

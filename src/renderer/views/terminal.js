@@ -16,10 +16,10 @@ const THEME = {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 export class Panes {
-  constructor(root, api, { onFocus, onClose }) {
+  constructor(root, api, { onFocus, onClose, onMove }) {
     this.root = root;
     this.api = api;
-    this.onFocus = onFocus; this.onClose = onClose;
+    this.onFocus = onFocus; this.onClose = onClose; this.onMove = onMove;
     this.tree = null;                 // { leaf: termId } | { dir: 'row'|'col', ratio, a, b }
     this.terms = new Map();           // termId → { term, fit, el, info }
     this.size = 'M';
@@ -32,6 +32,8 @@ export class Panes {
     api.on('pty-data', ({ id, data }) => this.terms.get(id)?.term.write(data));
     api.on('pty-exit', ({ id }) => { const t = this.terms.get(id); if (t) t.info.exited = true; this.render(); });
     window.addEventListener('resize', () => this.fitAll());
+    root.addEventListener('dragover', (e) => { if (Panes.drag && !this.tree) e.preventDefault(); });          // empty area accepts a pane
+    root.addEventListener('drop', (e) => { const d = Panes.drag; if (d && !this.tree && d.owner !== this) { e.preventDefault(); Panes.drag = null; document.querySelectorAll('.panes').forEach((r) => r.classList.remove('dragging')); this.receive(d.owner, d.id, null); } });
   }
 
   setMeta(list, workers) {
@@ -150,6 +152,18 @@ export class Panes {
     this.render();
   }
 
+  // A pane dragged in from the other terminal area (office area <-> side panel).
+  async receive(from, src, target, zone) {
+    if (!from.has(src)) return;
+    await from.close(src, { kill: false });
+    this.meta = from.meta;
+    if (target && this.terms.has(target)) {
+      this.focused = target;
+      await this.open(src, { dir: zone === 'top' || zone === 'bottom' ? 'col' : 'row' });
+      this.movePane(src, target, zone);
+    } else await this.open(src);
+  }
+
   dropZone(el, e) {
     const r = el.getBoundingClientRect();
     const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
@@ -223,23 +237,24 @@ export class Panes {
     const head = el.querySelector('.pane-head');
     head.addEventListener('dragstart', (e) => {
       if (e.target.closest('button')) { e.preventDefault(); return; }
-      this.dragId = id;
+      Panes.drag = { id, owner: this };
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', id);
-      requestAnimationFrame(() => { this.root.classList.add('dragging'); el.classList.add('drag-src'); });
+      requestAnimationFrame(() => { document.querySelectorAll('.panes').forEach((r) => r.classList.add('dragging')); el.classList.add('drag-src'); });
     });
-    head.addEventListener('dragend', () => { this.dragId = null; this.root.classList.remove('dragging'); this.root.querySelectorAll('.drag-src').forEach((x) => x.classList.remove('drag-src')); drop.removeAttribute('data-zone'); });
+    head.addEventListener('dragend', () => { Panes.drag = null; document.querySelectorAll('.panes').forEach((r) => r.classList.remove('dragging')); document.querySelectorAll('.drag-src').forEach((x) => x.classList.remove('drag-src')); drop.removeAttribute('data-zone'); });
     drop.addEventListener('dragover', (e) => {
-      if (!this.dragId || this.dragId === id) return;
+      if (!Panes.drag || Panes.drag.id === id) return;
       e.preventDefault(); e.dataTransfer.dropEffect = 'move';
       drop.dataset.zone = this.dropZone(drop, e);
     });
     drop.addEventListener('dragleave', () => drop.removeAttribute('data-zone'));
     drop.addEventListener('drop', (e) => {
       e.preventDefault();
-      const zone = this.dropZone(drop, e), src = this.dragId;
-      drop.removeAttribute('data-zone'); this.dragId = null; this.root.classList.remove('dragging');
-      if (src) this.movePane(src, id, zone);
+      const zone = this.dropZone(drop, e), d = Panes.drag;
+      drop.removeAttribute('data-zone'); Panes.drag = null; document.querySelectorAll('.panes').forEach((r) => r.classList.remove('dragging'));
+      if (!d) return;
+      if (d.owner === this) this.movePane(d.id, id, zone); else this.receive(d.owner, d.id, id, zone);
     });
     const body = el.querySelector('.pane-body');
     if (!t.opened) { t.term.open(body); t.opened = true; } else { body.append(t.term.element); }
@@ -251,6 +266,7 @@ export class Panes {
       if (act === 'row' || act === 'col') this.splitFrom(id, act);
       if (act === 'max') this.toggleMax(id);
       if (act === 'close') this.close(id);
+      if (act === 'move') this.onMove?.(id, this);
       if (act === 'clear') t.term.clear();
     });
     t.el = el;
@@ -267,9 +283,10 @@ export class Panes {
     const m = this.meta.get(id) || {};
     const w = m.workerId ? this.workersById.get(m.workerId) : null;
     const dot = m.exited != null ? '#6b625b' : w ? ({ working: '#6ea8ff', waiting: '#f2c94c', idle: '#7ad7a0' }[w.status] || '#7ad7a0') : '#7ad7a0';
-    const chips = w ? `<span class="chip">${esc(w.model)}</span>${w.branch ? `<span class="chip">⎇ ${esc(w.branch)}</span>` : ''}<span class="chip usage" title="Bu oturumun toplam maliyeti ve token kullanımı">$${(w.cost || 0).toFixed(2)} · ${Math.round((w.tokens || 0) / 1000)}k tok</span>` : '';
+    const other = w && w.engine && w.engine !== 'claude';
+    const chips = w ? `<span class="chip">${esc(other ? `${w.engine}${w.model ? ` · ${w.model}` : ''}` : w.model)}</span>${w.branch ? `<span class="chip">⎇ ${esc(w.branch)}</span>` : ''}${other ? '' : `<span class="chip usage" title="Bu oturumun toplam maliyeti ve token kullanımı">$${(w.cost || 0).toFixed(2)} · ${Math.round((w.tokens || 0) / 1000)}k tok</span>`}` : '';
     return `<i class="dot" style="background:${dot}"></i><b>${esc(m.title || id)}</b>${w ? `<span class="muted">${esc(w.role)}</span>` : ''}<span class="spacer"></span>${chips}
-      <button data-act="row" title="Yana böl">◫</button><button data-act="col" title="Alta böl">⬓</button><button data-act="clear" title="Temizle">⌫</button><button data-act="max" title="Büyüt/küçült">⤢</button><button data-act="close" title="Kapat">✕</button>`;
+      <button data-act="row" title="Yana böl">◫</button><button data-act="col" title="Alta böl">⬓</button><button data-act="clear" title="Temizle">⌫</button><button data-act="max" title="Büyüt/küçült">⤢</button>${this.onMove ? '<button data-act="move" title="Terminali diğer alana taşı (ofis alanı ⇄ sağ panel)">⇄</button>' : ''}<button data-act="close" title="Kapat">✕</button>`;
   }
 
   updateHeaders() {

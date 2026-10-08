@@ -36,8 +36,9 @@ export class Scene3D {
     this.scene.fog = new THREE.Fog(0x100e0c, 60, 120);
     this.camera = new THREE.PerspectiveCamera(38, 1, 0.5, 200);
     this.view = { az: 0.0, el: 0.95, dist: 40, tx: 16, tz: 13 };
-    this.scene.add(new THREE.HemisphereLight(0xfff1e0, 0x3a3430, 1.15));
-    const sun = new THREE.DirectionalLight(0xffe9d0, 1.2);
+    this.hemi = new THREE.HemisphereLight(0xfff1e0, 0x3a3430, 1.15);
+    this.scene.add(this.hemi);
+    const sun = this.sun = new THREE.DirectionalLight(0xffe9d0, 1.2);
     sun.position.set(-14, 34, 12);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -79,9 +80,26 @@ export class Scene3D {
     this.camera.lookAt(v.tx, 0, v.tz);
   }
 
+  // Light follows the real clock: warm morning and evening, bright noon, dim blue night.
+  // Windows on the back walls and the monitors glow once it gets dark.
+  daylight() {
+    const d = new Date(), h = d.getHours() + d.getMinutes() / 60;
+    const day = Math.max(0, Math.min(1, Math.sin(((h - 6) / 14) * Math.PI) * 1.6));       // 0 at night, 1 around midday
+    const warm = 1 - Math.min(1, Math.abs(h - 12) / 6);                                     // sun is whiter near noon
+    const lerp = (a, b, t) => new THREE.Color(a).lerp(new THREE.Color(b), t);
+    this.hemi.intensity = 0.55 + 0.6 * day;
+    this.hemi.color.copy(lerp('#8fa4d8', '#fff1e0', day));
+    this.hemi.groundColor.copy(lerp('#1c1a26', '#3a3430', day));
+    this.sun.intensity = 0.2 + 1.0 * day;
+    this.sun.color.copy(lerp('#9db4ff', lerp('#ffb27a', '#fff3e0', warm), day));
+    this.night = 1 - day;
+    for (const m of this.windows || []) { m.material.emissiveIntensity = 0.15 + 1.1 * this.night; m.material.color.copy(lerp('#bfe3ff', '#ffd98a', this.night)); }
+  }
+
   // ---- static scene ----------------------------------------------------------
   rebuild() {
     this.dirty = false;
+    this.lastLight = 0;
     const g = this.statics;
     g.traverse((o) => { if (o.isMesh) { o.geometry?.dispose(); } });
     g.clear();
@@ -125,6 +143,12 @@ export class Scene3D {
       if (y === r.y + r.h - 1) edge(x, y, x, y + 1);
       if (x === r.x) edge(x, y, x - 1, y);
       if (x === r.x + r.w - 1) edge(x, y, x + 1, y);
+    }
+    this.windows = [];
+    for (const r of L.rooms) for (let x = r.x + 2; x + 2 <= r.x + r.w - 1; x += 4) {          // windows on the north wall of every room
+      const wm = new THREE.MeshLambertMaterial({ color: '#bfe3ff', emissive: new THREE.Color('#ffd98a'), emissiveIntensity: 0.2 });
+      const m = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.55, 0.05), wm);
+      m.position.set(x + 1, 0.8, r.y + 0.1); g.add(m); this.windows.push(m);
     }
     for (const it of L.items) { const m = this.furniture(it); if (m) { m.position.x += it.x; m.position.z += it.y; g.add(m); } }
   }
@@ -267,9 +291,22 @@ export class Scene3D {
     });
   }
 
+  // Selecting an agent glides the camera to them (any manual pan/rotate cancels it).
+  followSelected() {
+    const o = this.o, v = this.view;
+    if (o.selected !== this.lastSel) { this.lastSel = o.selected; this.following = !!o.selected && o.chars.has(o.selected); }
+    if (!this.following) return;
+    const c = o.chars.get(o.selected);
+    if (!c) return;
+    v.tx += (c.x + 0.5 - v.tx) * 0.08; v.tz += (c.y + 0.5 - v.tz) * 0.08;
+    if (v.dist > 26) v.dist += (26 - v.dist) * 0.06;
+  }
+
   render(t) {
     if (this.dirty) { this.screens = new Map(); this.rebuild(); }
     if (!this.w) this.fit();
+    if (!this.lastLight || t - this.lastLight > 30) { this.lastLight = t; this.daylight(); }
+    this.followSelected();
     this.place();
     this.camera.updateMatrixWorld();
     this.animate(t);
@@ -303,7 +340,7 @@ export class Scene3D {
     cv.addEventListener('pointermove', (e) => {
       if (!drag) { cv.style.cursor = this.pick(e) ? 'pointer' : 'grab'; return; }
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-      if (Math.hypot(dx, dy) > 3) { drag.moved = true; this.o.userMoved = true; }
+      if (Math.hypot(dx, dy) > 3) { drag.moved = true; this.o.userMoved = true; this.following = false; }
       if (!drag.moved) return;
       if (drag.pan) {
         const k = v().dist * 0.0016, s = Math.sin(v().az), c = Math.cos(v().az);
@@ -316,6 +353,6 @@ export class Scene3D {
     });
     cv.addEventListener('dblclick', (e) => { const id = this.pick(e); if (id) this.o.onOpen?.(id); });
     cv.addEventListener('contextmenu', (e) => { e.preventDefault(); const id = this.pick(e); if (id) this.o.onContext?.(id, e.clientX, e.clientY); });
-    cv.addEventListener('wheel', (e) => { e.preventDefault(); this.o.userMoved = true; this.view.dist = Math.max(8, Math.min(90, this.view.dist * (1 + Math.sign(e.deltaY) * Math.min(0.12, Math.abs(e.deltaY) * 0.002)))); }, { passive: false });
+    cv.addEventListener('wheel', (e) => { e.preventDefault(); this.o.userMoved = true; this.following = false; this.view.dist = Math.max(8, Math.min(90, this.view.dist * (1 + Math.sign(e.deltaY) * Math.min(0.12, Math.abs(e.deltaY) * 0.002)))); }, { passive: false });
   }
 }

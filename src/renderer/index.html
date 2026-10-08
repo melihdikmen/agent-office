@@ -26,8 +26,10 @@
           <span class="spacer"></span>
           <span id="wsActive" class="muted">0/0 active</span><i id="wsDot" class="dot"></i>
           <button id="manageBtn" class="btn small">⚙ Yönet</button>
+          <button id="swapBtn" class="btn small" title="3B ofis alanını kapat, yerine terminalleri koy">▮ Terminal</button>
           <button id="editBtn" class="btn small">EDIT</button>
         </div>
+        <div id="leftTerm" class="office-wrap left-term hidden"><div id="panes2" class="panes"></div></div>
         <div id="officeWrap" class="office-wrap">
           <div id="office"></div>
           <div class="zoom"><button id="zoomIn">+</button><button id="zoomOut">−</button></div>
@@ -50,6 +52,7 @@
     <div class="resizer" id="resizer"></div>
     <main class="right">
       <div class="tabs right-tabs">
+        <button id="toggleOffice" class="tab-icon" title="Ofisi gizle / göster (⌘\)">◧</button>
         <button data-rtab="terminal" class="on">▮ Terminal</button>
         <button data-rtab="board">▮ Görevler <span id="taskCount" class="muted"></span></button>
         <button data-rtab="reports">▮ Raporlar <span id="reportCount" class="muted"></span></button>
@@ -57,7 +60,9 @@
         <button data-rtab="browser">▮ Tarayıcı</button>
         <button data-rtab="hub">▮ Hub</button>
         <span class="spacer drag"></span>
+        <button id="bellBtn" class="tab-icon bell" title="Bildirimler">🔔<span class="badge"></span></button>
       </div>
+      <div id="notifyPanel" class="notify-panel hidden"></div>
       <section id="rtab-terminal" class="rtab">
         <div class="term-bar">
           <span class="label">TERMINALS</span><span class="spacer"></span>
