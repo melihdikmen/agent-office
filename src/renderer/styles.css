@@ -399,3 +399,28 @@ pre.memo { white-space: pre-wrap; background: var(--panel2); padding: 10px; bord
 .upd { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 6px; font-size: 11.5px; }
 .upd.new { border-color: var(--accent); }
 #tabInfo.has { color: var(--accent); }
+
+.pane.file-over { box-shadow: 0 0 0 2px var(--accent), inset 0 0 0 9999px rgba(242,139,106,.07); }
+
+/* terminal covering the whole window */
+.pane.pane-full { position: fixed; inset: 0; z-index: 70; border-radius: 0; border: 0; box-shadow: none; background: #17130f; }
+.pane.pane-full .pane-head { padding-left: 82px; padding-top: 8px; height: 38px; -webkit-app-region: drag; }
+.pane.pane-full .pane-head button, .pane.pane-full .pane-head .chip { -webkit-app-region: no-drag; }
+.pane.pane-full .pane-body { padding-left: 14px; }
+
+/* pane header in narrow areas: name and chips shrink, buttons never get cut off */
+.pane-head > * { flex: none; }
+.pane-head > b, .pane-head > .muted { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pane-head > .spacer { flex: 1 1 0; min-width: 0; }
+.pane-head > .chip { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pane-head > .chip.usage { flex: 0 100 auto; }
+.pane-head > button { flex: none; }
+
+.ctx-menu .ctx-sep { height: 1px; background: var(--line); margin: 3px 4px; }
+.ctx-menu button.danger:hover { color: var(--red, #e76f51); }
+.ctx-menu { max-width: 340px; }
+.ctx-menu button { white-space: nowrap; }
+.ctx-menu { z-index: 100; }
+
+.autopilot { touch-action: none; user-select: none; z-index: 30; }
+.autopilot.dragging { cursor: grabbing; opacity: .9; box-shadow: 0 8px 24px rgba(0,0,0,.5); }

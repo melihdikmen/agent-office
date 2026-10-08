@@ -247,7 +247,36 @@ async function openWorkerTerminal(id) {
 $('#agentPick').onchange = (e) => { const v = e.target.value; e.target.value = ''; if (!v) return; if (v.startsWith('term:')) { if (!leftTermOpen()) setRTab('terminal'); openIn(v.slice(5)); } else openWorkerTerminal(v); };
 $('#addShell').onclick = async () => { const snap = await api.termShell({ cols: 100, rows: 30 }); if (snap?.id) { panes.meta.set(snap.id, snap); panes2.meta.set(snap.id, snap); (leftTermOpen() ? panes2 : panes).open(snap.id); } };
 $('#termSize').onclick = (e) => { const s = e.target.dataset.size; if (!s) return; $$('#termSize button').forEach((b) => b.classList.toggle('on', b.dataset.size === s)); panes.setSize(s); panes2.setSize(s); };
-$('#autopilot').onclick = () => api.handsOff({ on: !S.st?.handsOff });
+// The autopilot pill can be dragged anywhere in the window (a plain click still toggles it; right-click resets).
+const ap = $('#autopilot');
+const apPlace = (x, y) => {
+  const r = ap.getBoundingClientRect();
+  ap.style.position = 'fixed'; ap.style.bottom = 'auto';
+  ap.style.left = `${Math.max(4, Math.min(innerWidth - r.width - 4, x))}px`;
+  ap.style.top = `${Math.max(4, Math.min(innerHeight - r.height - 4, y))}px`;
+};
+try { const p = JSON.parse(localStorage.getItem('ao.autopilotPos') || 'null'); if (p) apPlace(p.x, p.y); } catch { /* storage blocked */ }
+window.addEventListener('resize', () => { if (ap.style.top) apPlace(parseFloat(ap.style.left), parseFloat(ap.style.top)); });
+let apDrag = null;
+ap.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  const r = ap.getBoundingClientRect();
+  apDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top, x: e.clientX, y: e.clientY, moved: false };
+  ap.setPointerCapture(e.pointerId);
+});
+ap.addEventListener('pointermove', (e) => {
+  if (!apDrag) return;
+  if (!apDrag.moved && Math.hypot(e.clientX - apDrag.x, e.clientY - apDrag.y) < 5) return;
+  apDrag.moved = true; ap.classList.add('dragging');
+  apPlace(e.clientX - apDrag.dx, e.clientY - apDrag.dy);
+});
+ap.addEventListener('pointerup', () => {
+  const d = apDrag; apDrag = null; ap.classList.remove('dragging');
+  if (!d) return;
+  if (d.moved) { try { localStorage.setItem('ao.autopilotPos', JSON.stringify({ x: parseFloat(ap.style.left), y: parseFloat(ap.style.top) })); } catch { /* storage blocked */ } ap.dataset.dragged = '1'; setTimeout(() => delete ap.dataset.dragged, 0); }
+});
+ap.addEventListener('click', () => { if (!ap.dataset.dragged) api.handsOff({ on: !S.st?.handsOff }); });
+ap.addEventListener('contextmenu', (e) => { e.preventDefault(); ap.removeAttribute('style'); try { localStorage.removeItem('ao.autopilotPos'); } catch { /* storage blocked */ } });
 $('#zoomIn').onclick = () => office.zoom(1);
 $('#zoomIn').ondblclick = () => office.fit(true);
 $('#zoomOut').onclick = () => office.zoom(-1);
@@ -520,6 +549,12 @@ function aboutDialog() {
 }
 $('#tabInfo').onclick = aboutDialog;
 api.on('update', (r) => toast(tt(`Yeni sürüm v${r.version} var — ⓘ düğmesinden indir`, `New version v${r.version} available — download it from the ⓘ button`)));
+
+document.addEventListener('keydown', (e) => {                      // ⌘⇧↵: focused terminal fills the whole window
+  if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.key !== 'Enter') return;
+  const p = Panes.full?.owner || [panes, panes2].find((x) => x.focused && x.has(x.focused) && x.root.offsetParent);
+  if (p?.focused) { e.preventDefault(); e.stopPropagation(); p.toggleFull(Panes.full?.id || p.focused); }
+}, true);
 
 // ---- show / hide the office column ---------------------------------------------
 function setOfficeHidden(hide) {

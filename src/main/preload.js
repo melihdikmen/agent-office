@@ -1,5 +1,5 @@
 'use strict';
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const channels = ['state', 'open-path', 'choose-dir',
   'ws-create', 'ws-switch', 'ws-update', 'ws-remove',
@@ -11,6 +11,8 @@ const channels = ['state', 'open-path', 'choose-dir',
 
 const api = {};
 for (const ch of channels) api[ch.replace(/-(\w)/g, (_, c) => c.toUpperCase())] = (arg) => ipcRenderer.invoke(ch, arg);
+// Real path of a File dropped from Finder (File.path was removed from Electron's renderer).
+api.pathForFile = (file) => { try { return webUtils.getPathForFile(file); } catch { return ''; } };
 api.on = (event, cb) => {
   const listener = (_e, payload) => cb(payload);
   ipcRenderer.on(`ev:${event}`, listener);

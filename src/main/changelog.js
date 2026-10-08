@@ -1,6 +1,21 @@
 'use strict';
 // What changed per release (Turkish + English); shown after an update and from the ⓘ button.
 module.exports = [
+  { version: '0.7.0', date: '2026-10-09',
+    items: [
+      'Terminale Finder\'dan dosya sürükle-bırak: yolu terminale yazar',
+      'Terminal tüm pencereyi kaplayabilir (⛶ düğmesi, başlığa çift tıklama ya da ⌘⇧↵)',
+      'Terminal başlığına sağ tık menüsü: böl, taşı, gruba taşı, kopyala, temizle, kapat',
+      'Otopilot düğmesi istediğin yere sürüklenebilir',
+      'Sol alana taşınan terminalin başlık düğmeleri artık kesilmiyor',
+    ],
+    en: [
+      'Drag files from Finder onto a terminal: types their paths into it',
+      'A terminal can fill the whole window (⛶ button, double-click the header, or ⌘⇧↵)',
+      'Right-click menu on a terminal header: split, move, move to group, copy, clear, close',
+      'The autopilot pill can be dragged anywhere',
+      'Header buttons of a terminal moved to the left area are no longer cut off',
+    ] },
   { version: '0.6.0', date: '2026-10-08',
     items: [
       'Çalışanlar için kendi git worktree\'leri: izole dal, inceleme, commit, birleştirme',

@@ -15,6 +15,25 @@ const THEME = {
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// 'it''s' style single-quote escaping; plain safe paths stay unquoted.
+const shellQuote = (p) => (/^[A-Za-z0-9_\/.,:@%+=~-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`);
+
+// Small popup menu at the pointer: items are [label, fn] or 'sep'.
+function popupMenu(x, y, title, items) {
+  document.querySelector('.ctx-menu')?.remove();
+  const m = document.createElement('div');
+  m.className = 'ctx-menu';
+  m.innerHTML = `<div class="ctx-title">${esc(title)}</div>` + items.map((it, i) => (it === 'sep' ? '<div class="ctx-sep"></div>' : `<button data-i="${i}"${it[2] ? ' class="danger"' : ''}>${esc(it[0])}</button>`)).join('');
+  document.body.append(m);
+  m.style.left = `${Math.max(4, Math.min(x, innerWidth - m.offsetWidth - 4))}px`;
+  m.style.top = `${Math.max(4, Math.min(y, innerHeight - m.offsetHeight - 4))}px`;
+  m.onclick = (e) => { const i = e.target.closest('[data-i]')?.dataset.i; if (i == null) return; m.remove(); items[i][1](); };
+  m.oncontextmenu = (e) => e.preventDefault();
+  const off = (e) => { if (!m.contains(e.target)) { m.remove(); removeEventListener('pointerdown', off, true); removeEventListener('keydown', esc2, true); } };
+  const esc2 = (e) => { if (e.key === 'Escape') off({ target: document.body }); };
+  setTimeout(() => { addEventListener('pointerdown', off, true); addEventListener('keydown', esc2, true); }, 0);
+}
+
 export class Panes {
   constructor(root, api, { onFocus, onClose, onMove }) {
     this.root = root;
@@ -169,6 +188,7 @@ export class Panes {
     t.term.dispose();
     this.terms.delete(id);
     this.removeLeaf(id);
+    if (Panes.full?.id === id) { Panes.full = null; document.body.classList.remove('term-full'); }
     if (this.focused === id) this.focused = this.leaves()[0] || null;
     if (this.maximized === id) this.maximized = null;
   }
@@ -239,6 +259,15 @@ export class Panes {
 
   focus(id) { const gi = this.groupOf(id); if (gi >= 0 && gi !== this.active) { this.active = gi; this.render(); } this.focused = id; this.save(); this.updateHeaders(); setTimeout(() => this.terms.get(id)?.term.focus(), 0); }
   setSize(s) { this.size = s; for (const t of this.terms.values()) t.term.options.fontSize = SIZES[s]; this.fitAll(); }
+  // Window-wide: the pane covers the office column too (unlike "max", which stays inside its own area).
+  toggleFull(id) {
+    const on = Panes.full?.id !== id;
+    if (Panes.full) { Panes.full.owner.terms.get(Panes.full.id)?.el?.classList.remove('pane-full'); Panes.full = null; }
+    if (on) { Panes.full = { id, owner: this }; this.terms.get(id)?.el?.classList.add('pane-full'); this.focused = id; }
+    document.body.classList.toggle('term-full', on);
+    this.fitAll();
+    setTimeout(() => this.terms.get(id)?.term.focus(), 0);
+  }
   toggleMax(id) { this.maximized = this.maximized === id ? null : id; this.render(); }
 
   // ---- DOM -------------------------------------------------------------------
@@ -319,6 +348,18 @@ export class Panes {
     el.className = 'pane';
     el.dataset.id = id;
     el.innerHTML = `<div class="pane-head" draggable="true" title="Sürükleyip başka bir terminalin kenarına bırak"></div><div class="pane-body"></div><div class="pane-drop"></div>`;
+    // Files dragged in from Finder: type their paths into this terminal, quoted like a shell would.
+    const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+    el.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; el.classList.add('file-over'); });
+    el.addEventListener('dragleave', (e) => { if (!el.contains(e.relatedTarget)) el.classList.remove('file-over'); });
+    el.addEventListener('drop', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault(); el.classList.remove('file-over');
+      const paths = [...e.dataTransfer.files].map((f) => this.api.pathForFile(f)).filter(Boolean);
+      if (!paths.length) return;
+      this.api.termPaste({ id, text: `${paths.map(shellQuote).join(' ')} ` });
+      this.focus(id);
+    });
     const drop = el.querySelector('.pane-drop');
     const head = el.querySelector('.pane-head');
     head.addEventListener('dragstart', (e) => {
@@ -351,12 +392,36 @@ export class Panes {
       if (!act) return;
       if (act === 'row' || act === 'col') this.splitFrom(id, act);
       if (act === 'max') this.toggleMax(id);
+      if (act === 'full') this.toggleFull(id);
       if (act === 'close') this.close(id);
       if (act === 'move') this.onMove?.(id, this);
       if (act === 'clear') t.term.clear();
     });
+    if (Panes.full?.id === id && Panes.full.owner === this) el.classList.add('pane-full');
+    el.querySelector('.pane-head').addEventListener('contextmenu', (e) => { e.preventDefault(); this.focused = id; this.updateHeaders(); this.headerMenu(id, e.clientX, e.clientY); });
+    el.querySelector('.pane-head').addEventListener('dblclick', (e) => { if (!e.target.closest('button')) this.toggleFull(id); });
     t.el = el;
     return el;
+  }
+
+  // Right-click on a pane header: the same actions as the header buttons, plus group moves and copy.
+  headerMenu(id, x, y) {
+    const t = this.terms.get(id), m = this.meta.get(id) || {};
+    const w = m.workerId ? this.workersById.get(m.workerId) : null;
+    const gi = this.groupOf(id);
+    const items = [
+      ['Yana böl', () => this.splitFrom(id, 'row')], ['Alta böl', () => this.splitFrom(id, 'col')], 'sep',
+      [Panes.full?.id === id ? 'Tam ekrandan çık' : 'Tüm pencereyi kapla', () => this.toggleFull(id)],
+      [this.maximized === id ? 'Küçült' : 'Bu alanda büyüt', () => this.toggleMax(id)],
+    ];
+    if (this.onMove) items.push(['Diğer alana taşı (ofis alanı ⇄ sağ panel)', () => this.onMove(id, this)]);
+    this.groups.forEach((g, i) => { if (i !== gi) items.push([`Gruba taşı: ${g.name}`, () => this.moveToGroup(id, i)]); });
+    items.push(['Yeni gruba taşı', () => { this.addGroup(); this.moveToGroup(id, this.groups.length - 1); }], 'sep');
+    items.push(['Çıktıyı kopyala', () => { t.term.selectAll(); const text = t.term.getSelection(); t.term.clearSelection(); navigator.clipboard?.writeText(text); }]);
+    items.push(['Ekranı temizle', () => t.term.clear()]);
+    if (w?.running) items.push(['Çalışanı durdur (uyut)', () => this.api.workerStop({ id: w.id })]);
+    items.push('sep', ['Paneli kapat', () => this.close(id), true]);
+    popupMenu(x, y, m.title || id, items);
   }
 
   async splitFrom(id, dir) {
@@ -372,7 +437,7 @@ export class Panes {
     const other = w && w.engine && w.engine !== 'claude';
     const chips = w ? `<span class="chip">${esc(other ? `${w.engine}${w.model ? ` · ${w.model}` : ''}` : w.model)}</span>${w.branch ? `<span class="chip">⎇ ${esc(w.branch)}</span>` : ''}${other ? '' : `<span class="chip usage" title="Bu oturumun toplam maliyeti ve token kullanımı">$${(w.cost || 0).toFixed(2)} · ${Math.round((w.tokens || 0) / 1000)}k tok</span>`}` : '';
     return `<i class="dot" style="background:${dot}"></i><b>${esc(m.title || id)}</b>${w ? `<span class="muted">${esc(w.role)}</span>` : ''}<span class="spacer"></span>${chips}
-      <button data-act="row" title="Yana böl">◫</button><button data-act="col" title="Alta böl">⬓</button><button data-act="clear" title="Temizle">⌫</button><button data-act="max" title="Büyüt/küçült">⤢</button>${this.onMove ? '<button data-act="move" title="Terminali diğer alana taşı (ofis alanı ⇄ sağ panel)">⇄</button>' : ''}<button data-act="close" title="Kapat">✕</button>`;
+      <button data-act="row" title="Yana böl">◫</button><button data-act="col" title="Alta böl">⬓</button><button data-act="clear" title="Temizle">⌫</button><button data-act="max" title="Büyüt/küçült">⤢</button><button data-act="full" title="Tüm pencereyi kapla (⌘⇧↵ ya da başlığa çift tıkla)">⛶</button>${this.onMove ? '<button data-act="move" title="Terminali diğer alana taşı (ofis alanı ⇄ sağ panel)">⇄</button>' : ''}<button data-act="close" title="Kapat">✕</button>`;
   }
 
   updateHeaders() {
