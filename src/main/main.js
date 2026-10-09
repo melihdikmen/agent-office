@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification, session, systemPreferences } = require('electron');
 const { execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -16,6 +16,7 @@ const { startMcp } = require('./mcp');
 const { Notifier } = require('./notify');
 const { ENGINES, findBin } = require('./engines');
 const worktree = require('./worktree');
+const { Stt } = require('./stt');
 const updates = require('./updates');
 const changelog = require('./changelog');
 const scanner = require('./scanner');
@@ -252,6 +253,12 @@ async function createWindow() {
   H('task-update', ({ id, patch }) => board.update(need(), id, patch, 'user').id);
   H('task-done', ({ id, report }) => board.done(need(), id, report || { summary: 'Sahip kapattı.' }, 'user').id);
   H('task-remove', ({ id }) => { board.remove(need(), id); return true; });
+  const stt = new Stt({ dataDir: app.getPath('userData'), envPath, store });
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media' || permission === 'clipboard-sanitized-write'));
+  H('stt-status', () => stt.status());
+  H('stt-setup', async () => { await stt.setup((text, pct) => send('ev:stt-progress', { text, pct })); return { ok: true }; });
+  H('stt-transcribe', async ({ wav, lang }) => ({ text: await stt.transcribe(Buffer.from(wav), { lang: lang === 'en' ? 'en' : 'tr' }) }));
+  H('mic-access', async () => (process.platform === 'darwin' && !process.env.AO_MIC_SKIP ? systemPreferences.askForMediaAccess('microphone') : true));
   const wtOf = (id) => { const ws = need(); const w = ws.workers.find((x) => x.id === id); if (!w) throw new Error('Çalışan yok'); return { ws, w }; };
   H('worktree-status', ({ id }) => { const { ws, w } = wtOf(id); return worktree.status(ws, w); });
   H('worktree-commit', ({ id, message }) => { const { w } = wtOf(id); const r = worktree.commit(w, message); push(); return r; });

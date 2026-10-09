@@ -7,6 +7,7 @@ import { Panes } from './views/terminal.js';
 import { NotifyView } from './views/notify.js';
 import { initI18n, tt } from './i18n.js';
 import { startTour } from './views/tour.js';
+import { Voice } from './views/voice.js';
 import { BoardView } from './views/board.js';
 import { ReportsView } from './views/reports.js';
 import { MemoryView } from './views/memory.js';
@@ -49,9 +50,10 @@ const office = new Office($('#office'), {
   onLayout: (layout) => { if (S.ws) api.wsUpdate({ id: S.ws.id, layout }); },
   onDesk: (desk) => deskDialog(desk),
 });
+const onMic = (id) => toggleVoice(id);
 const moveTerm = async (id, from) => { const to = from === panes ? panes2 : panes; await from.close(id, { kill: false }); to.meta = from.meta; await to.open(id); };
-const panes = new Panes($('#panes'), api, { onFocus: () => {}, onClose: () => {}, onMove: moveTerm });
-const panes2 = new Panes($('#panes2'), api, { onFocus: () => {}, onClose: () => {}, onMove: moveTerm });   // terminals shown in the office area
+const panes = new Panes($('#panes'), api, { onFocus: () => {}, onClose: () => {}, onMove: moveTerm, onMic });
+const panes2 = new Panes($('#panes2'), api, { onFocus: () => {}, onClose: () => {}, onMove: moveTerm, onMic });   // terminals shown in the office area
 const leftTermOpen = () => !$('#leftTerm').classList.contains('hidden');
 const openIn = async (id) => { const own = [panes, panes2].find((p) => p.has(id)); if (own) { if (own === panes) setRTab('terminal'); return own.focus(id); } return (leftTermOpen() ? panes2 : panes).open(id); };
 const notify = new NotifyView($('#bellBtn'), $('#notifyPanel'), api, { onOpen: (ref) => openRef(ref) });
@@ -515,6 +517,63 @@ function swapTerminals(toOffice) {
 }
 $('#swapBtn').onclick = () => swapTerminals(!leftTermOpen());
 try { if (localStorage.getItem('ao.termInOffice')) swapTerminals(true); } catch { /* storage unavailable */ }
+
+// ---- voice input: speak, the text is typed into the terminal (Enter stays with you) -----------
+const voiceHud = document.createElement('div');
+voiceHud.className = 'voice-hud hidden';
+document.body.append(voiceHud);
+const owner = (id) => [panes, panes2].find((p) => p.has(id));
+const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const voice = new Voice({
+  transcribe: async (wav) => { const r = await api.sttTranscribe({ wav, lang: LANG }); if (r?.error) throw new Error(r.error); return r.text; },
+  onState(state, info = {}) {
+    const t = voice.target;
+    if (state === 'recording') {
+      owner(t)?.setRecording(t, true);
+      voiceHud.classList.remove('hidden');
+      voiceHud.innerHTML = `<i class="v-dot"></i><span>${info.heard ? tt('Dinliyorum…', 'Listening…') : tt('Konuş…', 'Speak…')} ${clock(info.secs || 0)}</span><b class="v-bar"><u style="width:${Math.round((info.level || 0) * 100)}%"></u></b><small>${tt('Bitirmek için 🎤 · iptal: Esc', 'Click 🎤 to finish · Esc cancels')}</small>`;
+      return;
+    }
+    owner(t)?.setRecording(t, false);
+    if (state === 'processing') { voiceHud.classList.remove('hidden'); voiceHud.innerHTML = `<i class="v-dot busy"></i><span>${tt('Yazıya çevriliyor…', 'Transcribing…')}</span>`; return; }
+    voiceHud.classList.add('hidden');
+    if (state === 'done') { api.termPaste({ id: info.target, text: info.text }); owner(info.target)?.focus(info.target); }
+    if (state === 'empty') toast(tt('Ses algılanamadı.', 'No speech detected.'));
+    if (state === 'error') toast(info.message, 'err');
+  },
+});
+const focusedTerm = () => { const p = [panes, panes2].find((x) => x.focused && x.has(x.focused) && x.root.offsetParent); return p?.focused || null; };
+async function toggleVoice(id = focusedTerm()) {
+  if (voice.state === 'recording') return voice.stop();
+  if (voice.state !== 'idle') return;
+  if (!id) return toast(tt('Önce bir terminal aç ya da seç.', 'Open or select a terminal first.'));
+  const st = await api.sttStatus();
+  if (!st.ready) return sttSetupDialog(st);
+  if (!(await api.micAccess())) return toast(tt('Mikrofon izni yok: Sistem Ayarları → Gizlilik ve Güvenlik → Mikrofon', 'No microphone access: System Settings → Privacy & Security → Microphone'), 'err');
+  voice.start(id);
+}
+function sttSetupDialog(st) {
+  openDialog(`<form><h3>🎤 ${tt('Sesli komut kurulumu', 'Voice input setup')}</h3>
+    <p class="muted">${tt('Konuşman bu Mac\'te, internet olmadan yazıya çevrilir (whisper.cpp). Bir kez kurulur:', 'Your speech is transcribed on this Mac, offline (whisper.cpp). One-time setup:')}</p>
+    <ul class="stt-list"><li>${st.bin ? '✓' : '○'} whisper-cpp ${st.bin ? '' : tt('(Homebrew ile kurulur)', '(installed with Homebrew)')}</li><li>${st.model ? '✓' : '○'} ${tt('Dil modeli', 'Language model')} ${esc(st.modelName)} ${st.model ? '' : tt('(~180 MB indirilir)', '(~180 MB download)')}</li></ul>
+    ${!st.bin && !st.brew ? `<p class="wt-warn">${tt('Homebrew bulunamadı; önce brew.sh adresinden kur.', 'Homebrew not found; install it from brew.sh first.')}</p>` : ''}
+    <div id="sttProgress" class="muted"></div><div class="stt-bar hidden"><u></u></div>
+    <div class="dlg-actions"><button value="cancel" class="btn" formnovalidate>${tt('Vazgeç', 'Cancel')}</button><button type="button" class="btn primary" data-s="install" ${!st.bin && !st.brew ? 'disabled' : ''}>${tt('Kur', 'Install')}</button></div></form>`);
+  const off = api.on('stt-progress', ({ text, pct }) => { $('#sttProgress').textContent = text; const bar = $('.stt-bar'); bar.classList.toggle('hidden', pct == null); if (pct != null) $('u', bar).style.width = `${Math.round(pct * 100)}%`; });
+  dlg.addEventListener('close', off, { once: true });
+  dlgBody.onclick = async (e) => {
+    if (!e.target.closest('[data-s=install]')) return;
+    e.target.disabled = true;
+    const r = await api.sttSetup({});
+    if (r?.error) { $('#sttProgress').textContent = r.error; e.target.disabled = false; return; }
+    dlg.close(); toast(tt('Sesli komut hazır: 🎤 düğmesine bas ve konuş.', 'Voice input is ready: click 🎤 and speak.'));
+  };
+}
+$('#micBtn').onclick = () => toggleVoice();
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'm') { e.preventDefault(); e.stopPropagation(); toggleVoice(); }
+  else if (e.key === 'Escape' && voice.state === 'recording') { e.preventDefault(); e.stopPropagation(); voice.cancel(); }
+}, true);
 
 // ---- about / what's new / updates / language / tour -----------------------------------
 let firstRunDone = false;

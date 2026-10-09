@@ -35,10 +35,10 @@ function popupMenu(x, y, title, items) {
 }
 
 export class Panes {
-  constructor(root, api, { onFocus, onClose, onMove }) {
+  constructor(root, api, { onFocus, onClose, onMove, onMic }) {
     this.root = root;
     this.api = api;
-    this.onFocus = onFocus; this.onClose = onClose; this.onMove = onMove;
+    this.onFocus = onFocus; this.onClose = onClose; this.onMove = onMove; this.onMic = onMic;
     // Tab groups: each group is its own split layout { leaf: termId } | { dir: 'row'|'col', ratio, a, b };
     // terminals of hidden groups stay alive, only the active group is on screen.
     this.groups = [{ id: 'g1', name: 'Terminal', tree: null, focused: null, maximized: null }];
@@ -257,6 +257,8 @@ export class Panes {
     this.onClose?.(id);
   }
 
+  setRecording(id, on) { for (const [k, t] of this.terms) t.el?.classList.toggle('recording', on && k === id); }
+
   focus(id) { const gi = this.groupOf(id); if (gi >= 0 && gi !== this.active) { this.active = gi; this.render(); } this.focused = id; this.save(); this.updateHeaders(); setTimeout(() => this.terms.get(id)?.term.focus(), 0); }
   setSize(s) { this.size = s; for (const t of this.terms.values()) t.term.options.fontSize = SIZES[s]; this.fitAll(); }
   // Window-wide: the pane covers the office column too (unlike "max", which stays inside its own area).
@@ -393,6 +395,7 @@ export class Panes {
       if (act === 'row' || act === 'col') this.splitFrom(id, act);
       if (act === 'max') this.toggleMax(id);
       if (act === 'full') this.toggleFull(id);
+      if (act === 'mic') this.onMic?.(id, this);
       if (act === 'close') this.close(id);
       if (act === 'move') this.onMove?.(id, this);
       if (act === 'clear') t.term.clear();
@@ -437,7 +440,7 @@ export class Panes {
     const other = w && w.engine && w.engine !== 'claude';
     const chips = w ? `<span class="chip">${esc(other ? `${w.engine}${w.model ? ` · ${w.model}` : ''}` : w.model)}</span>${w.branch ? `<span class="chip">⎇ ${esc(w.branch)}</span>` : ''}${other ? '' : `<span class="chip usage" title="Bu oturumun toplam maliyeti ve token kullanımı">$${(w.cost || 0).toFixed(2)} · ${Math.round((w.tokens || 0) / 1000)}k tok</span>`}` : '';
     return `<i class="dot" style="background:${dot}"></i><b>${esc(m.title || id)}</b>${w ? `<span class="muted">${esc(w.role)}</span>` : ''}<span class="spacer"></span>${chips}
-      <button data-act="row" title="Yana böl">◫</button><button data-act="col" title="Alta böl">⬓</button><button data-act="clear" title="Temizle">⌫</button><button data-act="max" title="Büyüt/küçült">⤢</button><button data-act="full" title="Tüm pencereyi kapla (⌘⇧↵ ya da başlığa çift tıkla)">⛶</button>${this.onMove ? '<button data-act="move" title="Terminali diğer alana taşı (ofis alanı ⇄ sağ panel)">⇄</button>' : ''}<button data-act="close" title="Kapat">✕</button>`;
+      <button data-act="row" title="Yana böl">◫</button><button data-act="col" title="Alta böl">⬓</button><button data-act="clear" title="Temizle">⌫</button>${this.onMic ? '<button data-act="mic" title="Konuşarak yaz (⌘⇧M)">🎤</button>' : ''}<button data-act="max" title="Büyüt/küçült">⤢</button><button data-act="full" title="Tüm pencereyi kapla (⌘⇧↵ ya da başlığa çift tıkla)">⛶</button>${this.onMove ? '<button data-act="move" title="Terminali diğer alana taşı (ofis alanı ⇄ sağ panel)">⇄</button>' : ''}<button data-act="close" title="Kapat">✕</button>`;
   }
 
   updateHeaders() {

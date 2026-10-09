@@ -1,6 +1,15 @@
 'use strict';
 // What changed per release (Turkish + English); shown after an update and from the ⓘ button.
 module.exports = [
+  { version: '0.8.0', date: '2026-10-09',
+    items: [
+      'Sesli komut: terminal başlığındaki 🎤 (ya da ⌘⇧M) ile konuş, metin terminale yazılır; Enter\'a sen basarsın',
+      'Çeviri bu Mac\'te çevrimdışı (whisper.cpp); ilk kullanımda uygulama içinden tek tıkla kurulur',
+    ],
+    en: [
+      'Voice input: speak with the 🎤 in a terminal header (or ⌘⇧M); the text is typed into the terminal and Enter stays with you',
+      'Transcription runs offline on this Mac (whisper.cpp); set up with one click inside the app on first use',
+    ] },
   { version: '0.7.0', date: '2026-10-09',
     items: [
       'Terminale Finder\'dan dosya sürükle-bırak: yolu terminale yazar',
