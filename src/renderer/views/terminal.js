@@ -9,8 +9,8 @@ import { pruneTree, parseSaved } from './layout-tree.mjs';
 
 const SIZES = { S: 11, M: 13, L: 15 };
 const THEME = {
-  background: '#1b1715', foreground: '#eae2d8', cursor: '#f28b6a', cursorAccent: '#1b1715', selectionBackground: 'rgba(242,139,106,0.3)',
-  black: '#2b2622', red: '#e76f51', green: '#7ad7a0', yellow: '#f2c94c', blue: '#6ea8ff', magenta: '#c58bf2', cyan: '#7ad7c0', white: '#eae2d8',
+  background: '#0a0c16', foreground: '#eef0fb', cursor: '#8d9bff', cursorAccent: '#0a0c16', selectionBackground: 'rgba(141,155,255,0.3)',
+  black: '#2b2622', red: '#e76f51', green: '#7ad7a0', yellow: '#f2c94c', blue: '#6ea8ff', magenta: '#c58bf2', cyan: '#7ad7c0', white: '#eef0fb',
   brightBlack: '#6b625b', brightRed: '#ff8a6a', brightGreen: '#9af0bf', brightYellow: '#ffd97a', brightBlue: '#8fbcff', brightMagenta: '#d9a8ff', brightCyan: '#9eeadb', brightWhite: '#ffffff',
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -172,7 +172,7 @@ export class Panes {
   }
 
   attach(id) {
-    const term = new Terminal({ fontSize: SIZES[this.size], fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace', theme: THEME, cursorBlink: true, scrollback: 5000, allowProposedApi: true, macOptionIsMeta: true });
+    const term = new Terminal({ fontSize: SIZES[this.size], fontFamily: '"Hack", "JetBrains Mono", "SF Mono", Menlo, monospace', theme: THEME, cursorBlink: true, scrollback: 5000, allowProposedApi: true, macOptionIsMeta: true });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());

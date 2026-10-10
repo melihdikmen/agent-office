@@ -546,7 +546,7 @@ export class Office {
   colors() {
     if (!this._colors) {
       const cs = getComputedStyle(document.documentElement), v = (n, d) => cs.getPropertyValue(n).trim() || d;
-      this._colors = { yellow: v('--yellow', '#f2c94c'), purple: v('--purple', '#c58bf2'), blue: v('--blue', '#6ea8ff'), muted: v('--muted', '#8a8178'), paper: v('--text', '#eae2d8'), ink: v('--bg', '#15120f'), dark: v('--panel', '#1b1816') };
+      this._colors = { yellow: v('--yellow', '#fbbf4d'), purple: v('--purple', '#9a7bff'), blue: v('--blue', '#6aa5ff'), muted: v('--muted', '#aab1cf'), paper: v('--text', '#eef0fb'), ink: v('--bg', '#10131f'), dark: v('--panel', '#161a2b') };
     }
     return this._colors;
   }

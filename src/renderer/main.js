@@ -95,6 +95,15 @@ function apply(st) {
   ap.classList.toggle('on', st.handsOff);
   $('span', ap).textContent = st.handsOff ? 'HANDS-OFF' : 'UYUYOR';
 
+  renderTeamBar(workers);
+  const cost = workers.reduce((n, w) => n + (w.cost || 0), 0);
+  const waitingN = workers.filter((w) => w.status === 'waiting').length;
+  $('#sbWorkers').innerHTML = `<i class="dot ${waitingN ? 'warn' : active ? 'on' : ''}"></i>${active}/${workers.length} çalışıyor${waitingN ? ` · ${waitingN} bekliyor` : ''}`;
+  $('#sbCost').textContent = `$${cost.toFixed(2)} toplam`;
+  const decN = $('#decisionCount').textContent;
+  $('#sbDecisions').textContent = decN ? `⚑ ${decN} karar bekliyor` : '';
+  $('#sbDecisions').classList.toggle('warn', !!decN);
+
   S.guests = (st.guests || []).map((g) => ({ ...g, guest: true, color: '#9d79d6' }));
   $('#guestCount').textContent = S.guests.length ? `· ${S.guests.length} misafir` : '';
   if (ws) {
@@ -158,6 +167,17 @@ function renderGuestCard(g) {
   if (card.innerHTML !== html) card.innerHTML = html;
   $('#composerText').placeholder = `${g.name} oturumuna mesaj…`;
 }
+
+function renderTeamBar(workers) {
+  const bar = $('#teamBar');
+  const html = workers.map((w) => {
+    const act = w.activity;
+    const now = w.status === 'waiting' ? (w.waitingFor || 'onay bekliyor') : w.status === 'working' ? (act?.phase === 'tool' ? act.text : 'düşünüyor…') : w.running ? 'boşta' : 'uyuyor';
+    return `<button class="chip-w ${w.status} ${S.selected === w.id ? 'sel' : ''}" data-w="${w.id}" title="${esc(w.role)}"><i class="dot ${w.status === 'working' ? 'on' : w.status === 'waiting' ? 'warn' : ''}" style="--c:${w.color}"></i><b>${esc(w.name)}</b><span>${esc(now)}</span></button>`;
+  }).join('');
+  if (bar.innerHTML !== html) bar.innerHTML = html;
+}
+$('#teamBar').addEventListener('click', (e) => { const id = e.target.closest('[data-w]')?.dataset.w; if (id) select(id); });
 
 function renderWorkerCard() {
   const w = sel();
@@ -257,36 +277,7 @@ async function openWorkerTerminal(id) {
 $('#agentPick').onchange = (e) => { const v = e.target.value; e.target.value = ''; if (!v) return; if (v.startsWith('term:')) { if (!leftTermOpen()) setRTab('terminal'); openIn(v.slice(5)); } else openWorkerTerminal(v); };
 $('#addShell').onclick = async () => { const snap = await api.termShell({ cols: 100, rows: 30 }); if (snap?.id) { panes.meta.set(snap.id, snap); panes2.meta.set(snap.id, snap); (leftTermOpen() ? panes2 : panes).open(snap.id); } };
 $('#termSize').onclick = (e) => { const s = e.target.dataset.size; if (!s) return; $$('#termSize button').forEach((b) => b.classList.toggle('on', b.dataset.size === s)); panes.setSize(s); panes2.setSize(s); };
-// The autopilot pill can be dragged anywhere in the window (a plain click still toggles it; right-click resets).
-const ap = $('#autopilot');
-const apPlace = (x, y) => {
-  const r = ap.getBoundingClientRect();
-  ap.style.position = 'fixed'; ap.style.bottom = 'auto';
-  ap.style.left = `${Math.max(4, Math.min(innerWidth - r.width - 4, x))}px`;
-  ap.style.top = `${Math.max(4, Math.min(innerHeight - r.height - 4, y))}px`;
-};
-try { const p = JSON.parse(localStorage.getItem('ao.autopilotPos') || 'null'); if (p) apPlace(p.x, p.y); } catch { /* storage blocked */ }
-window.addEventListener('resize', () => { if (ap.style.top) apPlace(parseFloat(ap.style.left), parseFloat(ap.style.top)); });
-let apDrag = null;
-ap.addEventListener('pointerdown', (e) => {
-  if (e.button !== 0) return;
-  const r = ap.getBoundingClientRect();
-  apDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top, x: e.clientX, y: e.clientY, moved: false };
-  ap.setPointerCapture(e.pointerId);
-});
-ap.addEventListener('pointermove', (e) => {
-  if (!apDrag) return;
-  if (!apDrag.moved && Math.hypot(e.clientX - apDrag.x, e.clientY - apDrag.y) < 5) return;
-  apDrag.moved = true; ap.classList.add('dragging');
-  apPlace(e.clientX - apDrag.dx, e.clientY - apDrag.dy);
-});
-ap.addEventListener('pointerup', () => {
-  const d = apDrag; apDrag = null; ap.classList.remove('dragging');
-  if (!d) return;
-  if (d.moved) { try { localStorage.setItem('ao.autopilotPos', JSON.stringify({ x: parseFloat(ap.style.left), y: parseFloat(ap.style.top) })); } catch { /* storage blocked */ } ap.dataset.dragged = '1'; setTimeout(() => delete ap.dataset.dragged, 0); }
-});
-ap.addEventListener('click', () => { if (!ap.dataset.dragged) api.handsOff({ on: !S.st?.handsOff }); });
-ap.addEventListener('contextmenu', (e) => { e.preventDefault(); ap.removeAttribute('style'); try { localStorage.removeItem('ao.autopilotPos'); } catch { /* storage blocked */ } });
+$('#autopilot').addEventListener('click', () => api.handsOff({ on: !S.st?.handsOff }));
 $('#zoomIn').onclick = () => office.zoom(1);
 $('#zoomIn').ondblclick = () => office.fit(true);
 $('#zoomOut').onclick = () => office.zoom(-1);
@@ -302,6 +293,7 @@ function setLTab(t) {
 function setRTab(t) {
   S.rtab = t;
   $$('[data-rtab]').forEach((b) => b.classList.toggle('on', b.dataset.rtab === t));
+  $('#viewTitle').textContent = $(`[data-rtab="${t}"] .nl`)?.textContent || t;
   for (const k of ['terminal', 'board', 'reports', 'memory', 'browser', 'skills', 'decisions', 'hub']) $(`#rtab-${k}`).classList.toggle('hidden', k !== t);
   if (t === 'terminal') { panes.fitAll(); if (panes.focused) panes.focus(panes.focused); }
   if (t === 'memory') { memory.resize(); memory.refresh(); }
@@ -722,3 +714,49 @@ document.addEventListener('keydown', (e) => {
 api.state().then((st) => { apply(st); if (!st.active) $('#noWs').classList.remove('hidden'); });
 
 window.__office = { S, office, panes, panes2, board, select, openWorkerTerminal, setRTab, setLTab, workerDialog, teamDialog, manageDialog, toast };
+
+// ---- command palette (⌘K) ------------------------------------------------------
+const palette = (() => {
+  const el = document.createElement('div');
+  el.className = 'palette hidden';
+  el.innerHTML = '<div class="pal-box"><input id="palInput" placeholder="Ne yapmak istiyorsun? Çalışan, görünüm ya da işlem yaz…" autocomplete="off"><div id="palList" class="pal-list"></div></div>';
+  document.body.appendChild(el);
+  const input = el.querySelector('#palInput'), list = el.querySelector('#palList');
+  let items = [], idx = 0;
+  const all = () => {
+    const ws = S.ws?.workers || [];
+    return [
+      ...[['office', 'Ofis'], ['code', 'Kod']].map(([k, n]) => ({ g: 'Görünüm', n: `${n} görünümü`, run: () => setLTab(k) })),
+      ...[['terminal', 'Terminal'], ['board', 'Görevler'], ['reports', 'Raporlar'], ['memory', 'Hafıza'], ['browser', 'Tarayıcı'], ['skills', 'Beceriler'], ['decisions', 'Kararlar'], ['hub', 'Hub']].map(([k, n]) => ({ g: 'Görünüm', n: `${n} görünümü`, run: () => setRTab(k) })),
+      ...ws.flatMap((w) => [{ g: 'Çalışan', n: `${w.name} · ${w.role} — seç`, run: () => { setLTab('office'); select(w.id); } }, { g: 'Çalışan', n: `${w.name} — terminalini aç`, run: () => openWorkerTerminal(w.id) }]),
+      { g: 'İşlem', n: 'Çalışan ekle', run: () => (S.ws ? workerDialog() : wsDialog()) },
+      { g: 'İşlem', n: 'Takım ekle', run: () => (S.ws ? teamDialog() : wsDialog()) },
+      { g: 'İşlem', n: 'Yeni shell terminali', run: () => $('#addShell').click() },
+      { g: 'İşlem', n: 'Hands-off aç / kapat', run: () => $('#autopilot').click() },
+      { g: 'İşlem', n: 'Ofisi gizle / göster', run: () => toggleOffice() },
+      { g: 'İşlem', n: 'Hakkında, yenilikler, sistem kontrolü', run: () => $('#tabInfo').click() },
+    ];
+  };
+  const norm = (t) => t.toLocaleLowerCase('tr').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const draw = () => {
+    const q = norm(input.value.trim());
+    items = all().filter((i) => !q || q.split(/\s+/).every((p) => norm(`${i.g} ${i.n}`).includes(p))).slice(0, 12);
+    idx = Math.min(idx, Math.max(0, items.length - 1));
+    list.innerHTML = items.map((i, n) => `<div class="pal-row ${n === idx ? 'on' : ''}" data-i="${n}"><span class="pal-g">${esc(i.g)}</span>${esc(i.n)}</div>`).join('') || '<div class="pal-empty">Eşleşme yok</div>';
+  };
+  const close = () => el.classList.add('hidden');
+  const open = () => { el.classList.remove('hidden'); input.value = ''; idx = 0; draw(); input.focus(); };
+  const run = (n) => { const it = items[n]; if (!it) return; close(); it.run(); };
+  input.oninput = () => { idx = 0; draw(); };
+  input.onkeydown = (e) => {
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowDown') { idx = Math.min(items.length - 1, idx + 1); draw(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { idx = Math.max(0, idx - 1); draw(); e.preventDefault(); }
+    else if (e.key === 'Enter' && !e.isComposing) run(idx);
+  };
+  list.onclick = (e) => { const n = e.target.closest('[data-i]')?.dataset.i; if (n != null) run(+n); };
+  el.addEventListener('pointerdown', (e) => { if (e.target === el) close(); });
+  document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k' && !e.shiftKey) { e.preventDefault(); el.classList.contains('hidden') ? open() : close(); } }, true);
+  return { open, close };
+})();
+$('#sbHint').onclick = () => palette.open();

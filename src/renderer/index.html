@@ -9,30 +9,45 @@
 </head>
 <body>
   <div class="app">
-    <aside class="left" id="left">
-      <div class="tabs left-tabs">
-        <button data-ltab="office" class="on">▮ Ofis <span id="activeCount" class="muted"></span><span id="guestCount" class="muted"></span></button>
-        <button data-ltab="code">▮ Kod <span id="codeCount" class="muted"></span></button>
-        <span class="spacer drag"></span>
-        <button id="tabInfo" class="tab-icon" title="Hakkında, yenilikler, güncelleme">ⓘ</button>
-        <button id="tabAddWorker" class="tab-icon" title="Çalışan ekle">＋</button>
-        <button id="tabSwap" class="tab-icon" title="3B ofis alanına terminal koy / geri al">◫</button>
-        <button id="tabCollapse" class="tab-icon" title="Ofisi gizle (⌘\)">−</button>
-        <button id="wsMenuBtn" class="tab-icon" title="Ofisler">☰</button>
-      </div>
-      <div class="left-tools">
-        <button id="addTeam" class="btn small">＋ Takım</button>
+    <nav class="nav" id="nav">
+    <div class="nav-brand" title="Agent Office"></div>
+    <div class="nav-group left-tabs">
+      <button data-ltab="office" class="on" title="Ofis"><i class="ni">⌂</i><span class="nl">Ofis</span><span id="activeCount" class="nb"></span><span id="guestCount" class="hidden"></span></button>
+      <button data-ltab="code" title="Kod"><i class="ni">‹›</i><span class="nl">Kod</span><span id="codeCount" class="nb"></span></button>
+    </div>
+    <div class="nav-sep"></div>
+    <div class="nav-group right-tabs">
+      <button data-rtab="terminal" class="on" title="Terminal"><i class="ni">▸_</i><span class="nl">Terminal</span></button>
+      <button data-rtab="board" title="Görevler"><i class="ni">☰</i><span class="nl">Görevler</span><span id="taskCount" class="nb"></span></button>
+      <button data-rtab="reports" title="Raporlar"><i class="ni">▤</i><span class="nl">Raporlar</span><span id="reportCount" class="nb"></span></button>
+      <button data-rtab="memory" title="Hafıza"><i class="ni">◎</i><span class="nl">Hafıza</span></button>
+      <button data-rtab="browser" title="Tarayıcı"><i class="ni">◐</i><span class="nl">Tarayıcı</span></button>
+      <button data-rtab="skills" title="Beceriler"><i class="ni">✦</i><span class="nl">Beceriler</span></button>
+      <button data-rtab="decisions" title="Kararlar"><i class="ni">⚑</i><span class="nl">Kararlar</span><span id="decisionCount" class="nb warn"></span></button>
+      <button data-rtab="hub" title="Hub"><i class="ni">⬡</i><span class="nl">Hub</span></button>
+    </div>
+    <div class="nav-spacer"></div>
+    <div class="nav-group nav-bottom">
+      <button id="bellBtn" class="bell" title="Bildirimler"><i class="ni">🔔</i><span class="badge"></span></button>
+      <button id="tabInfo" title="Hakkında, yenilikler, güncelleme"><i class="ni">ⓘ</i></button>
+      <button id="wsMenuBtn" title="Ofisler"><i class="ni">☰</i></button>
+    </div>
+  </nav>
+  <aside class="left" id="left">
+      <header class="topbar">
+        <button id="wsName" class="ws-name" title="Ofisi değiştir / yeniden adlandır">—</button>
+        <span id="wsActive" class="muted">0/0 active</span><i id="wsDot" class="dot"></i>
+        <span class="spacer"></span>
         <button id="addWorker" class="btn small">＋ Çalışan</button>
-      </div>
+        <button id="addTeam" class="btn small">＋ Takım</button>
+        <button id="manageBtn" class="btn small">⚙ Yönet</button>
+        <button id="swapBtn" class="btn small" title="3B ofis alanını kapat, yerine terminalleri koy">▮ Terminal</button>
+        <button id="editBtn" class="btn small">EDIT</button>
+        <button id="tabSwap" class="tab-icon" title="3B ofis alanına terminal koy / geri al">◫</button>
+        <button id="tabCollapse" class="tab-icon" title="Ofisi gizle (⌘\)">⇤</button>
+        <button id="tabAddWorker" class="hidden"></button>
+      </header>
       <section id="ltab-office" class="ltab">
-        <div class="ws-head">
-          <button id="wsName" class="ws-name" title="Ofisi değiştir / yeniden adlandır">—</button>
-          <span class="spacer"></span>
-          <span id="wsActive" class="muted">0/0 active</span><i id="wsDot" class="dot"></i>
-          <button id="manageBtn" class="btn small">⚙ Yönet</button>
-          <button id="swapBtn" class="btn small" title="3B ofis alanını kapat, yerine terminalleri koy">▮ Terminal</button>
-          <button id="editBtn" class="btn small">EDIT</button>
-        </div>
         <div id="leftTerm" class="office-wrap left-term hidden"><div id="panes2" class="panes"></div></div>
         <div id="officeWrap" class="office-wrap">
           <div id="office"></div>
@@ -44,6 +59,7 @@
             <button class="btn primary" id="noWsBtn">📁 Proje klasörü seç</button>
           </div>
         </div>
+        <div id="teamBar" class="team-bar"></div>
         <div id="workerCard" class="worker-card hidden"></div>
         <form id="composer" class="composer hidden">
           <textarea id="composerText" rows="1" placeholder="komut yaz…"></textarea>
@@ -51,24 +67,14 @@
         </form>
       </section>
       <section id="ltab-code" class="ltab hidden"></section>
-      <button id="autopilot" class="autopilot" title="Hands-off: biri bitince sıradaki görev otomatik başlar"><i></i><span>UYUYOR</span><b></b></button>
     </aside>
     <div class="resizer" id="resizer"></div>
     <nav class="rail" id="officeRail" title="Ofisi göster (⌘\)"><span class="rail-btn">›</span><i class="rail-dot" id="railDot"></i><span class="rail-label">Ofis · Kod</span></nav>
     <main class="right">
-      <div class="tabs right-tabs">
-        <button data-rtab="terminal" class="on">▮ Terminal</button>
-        <button data-rtab="board">▮ Görevler <span id="taskCount" class="muted"></span></button>
-        <button data-rtab="reports">▮ Raporlar <span id="reportCount" class="muted"></span></button>
-        <button data-rtab="memory">▮ Hafıza</button>
-        <button data-rtab="browser">▮ Tarayıcı</button>
-        <button data-rtab="skills">▮ Beceriler</button>
-        <button data-rtab="decisions">▮ Kararlar <span id="decisionCount" class="muted"></span></button>
-        <button data-rtab="hub">▮ Hub</button>
-        <span class="spacer drag"></span>
+      <div class="right-head">
+        <h2 id="viewTitle">Terminal</h2><span class="spacer drag"></span>
         <button id="tabNewShell" class="tab-icon" title="Yeni terminal">＋</button>
         <button id="tabSplit" class="tab-icon" title="Odaktaki terminali yana böl">◫</button>
-        <button id="bellBtn" class="tab-icon bell" title="Bildirimler">🔔<span class="badge"></span></button>
       </div>
       <div id="notifyPanel" class="notify-panel hidden"></div>
       <section id="rtab-terminal" class="rtab">
@@ -89,7 +95,13 @@
       <section id="rtab-decisions" class="rtab hidden"></section>
       <section id="rtab-hub" class="rtab hidden"></section>
     </main>
+    <footer class="statusbar" id="statusbar">
+    <button id="autopilot" class="autopilot" title="Hands-off: biri bitince sıradaki görev otomatik başlar"><i></i><span>UYUYOR</span><b></b></button>
+    <span id="sbWorkers" class="sb"></span><span id="sbCost" class="sb"></span><span id="sbDecisions" class="sb"></span>
+    <span class="spacer"></span><span id="sbHint" class="sb muted">⌘K komut paleti</span>
+  </footer>
   </div>
+  
   <dialog id="dlg"><div id="dlgBody"></div></dialog>
   <div id="toasts"></div>
   <script src="../../out/renderer.js"></script>

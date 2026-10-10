@@ -1,6 +1,17 @@
 'use strict';
 // What changed per release (Turkish + English); shown after an update and from the ⓘ button.
 module.exports = [
+  { version: '0.10.0', date: '2026-10-10',
+    items: [
+      'Yeni yerleşim: solda dikey gezinme çubuğu, tek satırlık üst çubuk, ofisin altında ekip şeridi, altta durum çubuğu (hands-off anahtarı burada)',
+      '⌘K komut paleti: görünüm değiştir, çalışan seç, terminal aç, çalışan ekle',
+      'Lacivert yeni renk paleti; arayüzde Roboto, terminalde Hack yazı tipi',
+    ],
+    en: [
+      'New layout: vertical navigation on the left, a single top bar, a team strip under the office, and a status bar (hands-off switch lives there)',
+      '⌘K command palette: switch views, pick a worker, open a terminal, add a worker',
+      'New navy colour palette; Roboto for the interface, Hack for terminals',
+    ] },
   { version: '0.9.0', date: '2026-10-10',
     items: [
       'Ajan sana karar sorabilir (ask_owner): Kararlar sekmesi, bildirim ve ofiste "⚑ Karar" balonu',
