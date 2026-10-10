@@ -32,6 +32,7 @@ const MCP_TOOLS = (z) => ({
     input: { question: z.string().min(1), options: z.array(z.string()).max(5).default([]), details: z.string().optional(), task: z.string().optional(), recommended: z.string().optional(), auto_min: z.number().optional() },
   },
   skill_propose: { description: 'Tekrar eden bir çalışma biçimini beceri olarak sahibe önerir (sahip onaylarsa ekibin becerisi olur). name: kısa ad; description: ne zaman kullanılacağı (tek cümle, İngilizce); body: adım adım yöntem (Markdown). Yalnızca gerçekten tekrar eden, genelleştirilebilir işler için.', input: { name: z.string().min(1), description: z.string().min(1), body: z.string().min(1) } },
+  design_save: { description: 'Bir ekran/arayüz tasarım taslağını sahibe gösterir (kodlamadan önce). html: tek dosyada, kendi içinde tam bir HTML (satır içi CSS; script ve dış kaynak çalışmaz; resimler için data: URI ya da CSS kullan). Aynı title ile tekrar çağırırsan yeni sürüm olur. Sahip taslağın üzerine numaralı not bırakıp sana gönderebilir; notları uygulayıp aynı başlıkla yeni sürüm kaydet.', input: { title: z.string().min(1), html: z.string().min(1), summary: z.string().optional() } },
   memory_search: { description: 'Takımın hafızasında arar (kendi notların + takım arkadaşlarınınki).', input: { query: z.string().min(1) } },
 });
 

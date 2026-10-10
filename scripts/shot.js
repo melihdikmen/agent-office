@@ -85,6 +85,9 @@ app.on('browser-window-created', (_e, w) => {
     await shot('skills', `(() => { window.__office.setRTab('skills'); })()`, 1000);
     await js(`(async () => { const o = window.__office; o.setRTab('editor'); await new Promise((r) => setTimeout(r, 600)); const all = await window.office.fsWalk({ root: 'project' }); o.editor.openFile(all.find((f) => /\\.(js|json|md)$/.test(f)) || all[0]); })()`);
     await shot('editor', `(() => 0)()`, 1500);
+    await js(`(async () => { const o = window.__office; const html = '<body style="font-family:sans-serif;margin:0;background:#f6f7fb"><header style="background:#4b55d6;color:#fff;padding:18px 24px;font-size:20px">Giriş</header><main style="padding:24px"><div style="background:#fff;border-radius:12px;padding:20px;max-width:320px;box-shadow:0 2px 10px #0002"><h2>Hoş geldin</h2><input placeholder="E-posta" style="width:100%;padding:10px;margin:6px 0"><input placeholder="Şifre" style="width:100%;padding:10px;margin:6px 0"><button id=go style="width:100%;padding:12px;background:#4b55d6;color:#fff;border:0;border-radius:8px">Giriş yap</button></div></main></body>'; const r = await window.office.designImport({ title: 'Giriş ekranı', html }); o.setRTab('design'); await new Promise((x) => setTimeout(x, 800)); })()`);
+    await shot('design', `(() => { const d = window.__office.designView; d.ann = true; d.render(); d.marks = [{ x: 150, y: 190, text: 'Düğme daha büyük olsun' }]; d.drawMarks(); })()`, 1200);
+    console.log('design-feedback', await js(`(async () => { const d = window.__office.designView; const to = document.getElementById('dsTo').value; await d.send(); return 'sent'; })()`));
     await shot('hire', `(() => { const o = window.__office; o.setRTab('terminal'); o.workerDialog(); })()`, 1000);
     await js(`(async () => { for (const w of window.__office.S.ws.workers) await window.office.workerStop({ id: w.id }); })()`);
     await wait(800);

@@ -19,6 +19,7 @@ const worktree = require('./worktree');
 const { Stt } = require('./stt');
 const { Chat } = require('./chat');
 const files = require('./files');
+const { Designs } = require('./designs');
 const { Decisions } = require('./decisions');
 const { Skills } = require('./skills');
 const speaker = require('./speak');
@@ -82,6 +83,7 @@ async function createWindow() {
   // Workers reach the board through MCP; the token in the URL says who is calling.
   const workersRef = {};
   const decisionsRef = {};
+  const designs = new Designs(store);
   const webtoolRef = { current: new WebTool({ BrowserWindow }, path.join(app.getPath('userData'), 'screenshots'), (l) => log(l)) };
   const mcp = await startMcp({
     resolveCaller: (token) => workersRef.current?.byToken(token) || null,
@@ -92,6 +94,7 @@ async function createWindow() {
       task_create: (c, a) => { const t = board.create(c.ws, { ...a, createdBy: c.worker.id }); return `${t.id} oluşturuldu (${t.status}${t.assignee ? `, ${board.who(c.ws, t.assignee)}` : ''})`; },
       task_update: (c, a) => { const t = board.update(c.ws, a.id, a, c.worker.id); return `${t.id}: ${t.status}${t.assignee ? ` · ${board.who(c.ws, t.assignee)}` : ''}`; },
       task_done: (c, a) => { const t = board.done(c.ws, a.id, a, c.worker.id); return `${t.id} kapatıldı. Rapor kaydedildi.`; },
+      design_save: (c, a) => { const r = designs.save(c.ws, c.worker, a); push(); send('ev:design', { id: r.design.id, v: r.v }); return `${r.design.id} v${r.v} kaydedildi; sahip Tasarım sekmesinde görecek. Dosya: ${r.file}`; },
       skill_propose: (c, a) => { const p = skills.propose(c.worker, a); push(); return `Öneri sahibe iletildi (${p.name}). Onaylanırsa beceri merkezine eklenir.`; },
       ask_owner: (c, a) => { const d = decisionsRef.current.ask(c.ws, c.worker.id, a); return `${d.id} sahibe iletildi. Cevap terminaline "[Karar ${d.id}] …" olarak gelecek; o zamana kadar bu karara bağlı olmayan işe devam et.`; },
       web_read: (c, a) => webtoolRef.current.read(a.url),
@@ -129,7 +132,7 @@ async function createWindow() {
       active: ws ? {
         id: ws.id, name: ws.name, dir: ws.dir, lead: ws.lead, layout: ws.layout,
         workers: ws.workers.map((w) => workers.view(ws, w)),
-        tasks: ws.tasks, reports: ws.reports.slice(0, 100), chat: (ws.chat || []).slice(-150),
+        tasks: ws.tasks, reports: ws.reports.slice(0, 100), designs: (ws.designs || []).slice(0, 60), chat: (ws.chat || []).slice(-150),
       } : null,
       terminals: terminals.list(),
       guests,
@@ -415,6 +418,34 @@ async function createWindow() {
     workers.send(ws, w.id, `[Kod · Sahip] ${where}${snippet}\n${String(comment || '').slice(0, 1500) || '(bu koda bak)'}`);
     return true;
   });
+  H('design-get', ({ id, v }) => { const r = designs.get(need(), id, v); return { html: r.html, v: r.v, file: r.file }; });
+  H('design-approve', ({ id, on, note }) => {
+    const ws = need(); const d = designs.approve(ws, id, on !== false);
+    if (d.status === 'approved') { const w = ws.workers.find((x) => x.id === ws.lead) || ws.workers.find((x) => x.id === d.by); if (w) { if (!workers.running(w.id)) workers.start(ws, w.id); workers.send(ws, w.id, `[Tasarım · Sahip] ${d.id} "${d.title}" v${d.versions.at(-1).v} onaylandı${note ? `: ${String(note).slice(0, 300)}` : ''}. Geliştirmeye başla: görevlere böl ve ekibe dağıt.`); } }
+    push(); return d;
+  });
+  H('design-import', ({ title, html }) => { const r = designs.save(need(), null, { title, html, summary: 'içe aktarıldı' }); push(); return { id: r.design.id, v: r.v }; });
+  H('design-delete', ({ id }) => { designs.remove(need(), id); push(); return true; });
+  H('design-request', ({ to, text }) => {
+    const ws = need(); const w = ws.workers.find((x) => x.id === to) || ws.workers.find((x) => x.id === ws.lead) || ws.workers[0];
+    if (!w) throw new Error('Ofiste çalışan yok.');
+    const t = String(text || '').trim().slice(0, 1500); if (!t) throw new Error('Ne tasarlanacağını yaz.');
+    if (!workers.running(w.id)) workers.start(ws, w.id);
+    workers.send(ws, w.id, `[Tasarım isteği · Sahip] ${t}\n(Kod yazma; yalnızca tasarım taslağı hazırla: kendi içinde tam bir HTML'i design_save ile kaydet.)`);
+    return { name: w.name };
+  });
+  H('design-feedback', ({ id, v, to, png, notes, width, height }) => {
+    const ws = need(); const { design, file } = designs.get(ws, id, v);
+    const w = ws.workers.find((x) => x.id === to) || ws.workers.find((x) => x.id === design.by);
+    if (!w) throw new Error('Çalışan yok.');
+    const dir = path.join(app.getPath('userData'), 'annotations'); fs.mkdirSync(dir, { recursive: true });
+    const shot = path.join(dir, `${Date.now()}.png`); if (png) fs.writeFileSync(shot, Buffer.from(String(png), 'base64'));
+    const lines = (notes || []).slice(0, 20).map((n) => `${n.n}) (%${n.px},%${n.py})${n.target ? ` ${n.target}` : ''} — ${String(n.text).slice(0, 400)}`);
+    if (!workers.running(w.id)) workers.start(ws, w.id);
+    workers.send(ws, w.id, `[Tasarım · Sahip] ${design.id} "${design.title}" v${v} için geri bildirim (${width}×${height})\n${png ? `Görüntü (numaralı kırmızı noktalar): ${shot}\n` : ''}Tasarım dosyası: ${file}\n${lines.join('\n')}\n(Notları uygula ve design_save ile AYNI başlıkla yeni sürüm kaydet.)`);
+    return true;
+  });
+  H('capture-rect', async ({ x, y, w, h }) => { const img = await win.webContents.capturePage({ x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) }); return img.toPNG().toString('base64'); });
   H('review-list', () => {
     const ws = activeWs(); if (!ws) return [];
     return ws.workers.filter((w) => w.worktree && w.worktreePath).map((w) => {
