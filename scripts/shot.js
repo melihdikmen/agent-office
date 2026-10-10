@@ -83,6 +83,8 @@ app.on('browser-window-created', (_e, w) => {
     console.log('annot-send', await js(`(async () => { const b = window.__office.browser; const r = await window.office.annotSend ? 'api-ok' : 'no-api'; await b.send(); return r; })()`));
     await shot('review', `(() => { window.__applyTheme('gece'); window.__office.setRTab('review'); })()`, 1200);
     await shot('skills', `(() => { window.__office.setRTab('skills'); })()`, 1000);
+    await js(`(async () => { const o = window.__office; o.setRTab('editor'); await new Promise((r) => setTimeout(r, 600)); const all = await window.office.fsWalk({ root: 'project' }); o.editor.openFile(all.find((f) => /\\.(js|json|md)$/.test(f)) || all[0]); })()`);
+    await shot('editor', `(() => 0)()`, 1500);
     await shot('hire', `(() => { const o = window.__office; o.setRTab('terminal'); o.workerDialog(); })()`, 1000);
     await js(`(async () => { for (const w of window.__office.S.ws.workers) await window.office.workerStop({ id: w.id }); })()`);
     await wait(800);

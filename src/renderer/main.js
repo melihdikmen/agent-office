@@ -18,6 +18,7 @@ import { BrowserView } from './views/browser.js';
 import { HubView } from './views/hub.js';
 import { ChatView } from './views/chat.js';
 import { ReviewView } from './views/review.js';
+import { EditorPane } from './views/editor.js';
 import { THEMES, applyTheme, currentTheme } from './views/themes.js';
 applyTheme();
 
@@ -81,6 +82,7 @@ const decisionsView = new DecisionsView($('#rtab-decisions'), api, { toast, onCo
 const skillsView = new SkillsView($('#rtab-skills'), api, { toast, openDialog: (...a) => openDialog(...a), closeDialog: () => dlg.close(), dlgBody: () => dlgBody });
 const chatView = new ChatView($('#rtab-chat'), api, { toast, onUnread: (n) => { $('#chatCount').textContent = n ? String(n) : ''; } });
 const review = new ReviewView($('#rtab-review'), api, { toast });
+const editor = new EditorPane($('#rtab-editor'), api, { toast, workers: () => S.ws?.workers || [] });
 const hub = new HubView($('#rtab-hub'), api, { toast });
 
 // ---- state -------------------------------------------------------------------
@@ -302,8 +304,9 @@ function setRTab(t) {
   S.rtab = t;
   $$('[data-rtab]').forEach((b) => b.classList.toggle('on', b.dataset.rtab === t));
   $('#viewTitle').textContent = $(`[data-rtab="${t}"] .nl`)?.textContent || t;
-  for (const k of ['chat', 'terminal', 'board', 'review', 'reports', 'memory', 'browser', 'skills', 'decisions', 'hub']) $(`#rtab-${k}`).classList.toggle('hidden', k !== t);
+  for (const k of ['chat', 'terminal', 'board', 'editor', 'review', 'reports', 'memory', 'browser', 'skills', 'decisions', 'hub']) $(`#rtab-${k}`).classList.toggle('hidden', k !== t);
   chatView.show(t === 'chat');
+  editor.show(t === 'editor');
   if (t === 'review') review.load();
   if (t === 'terminal') { panes.fitAll(); if (panes.focused) panes.focus(panes.focused); }
   if (t === 'memory') { memory.resize(); memory.refresh(); }
@@ -727,7 +730,7 @@ document.addEventListener('keydown', (e) => {
 api.state().then((st) => { apply(st); if (!st.active) $('#noWs').classList.remove('hidden'); });
 
 window.__applyTheme = applyTheme;
-window.__office = { S, office, panes, panes2, board, select, openWorkerTerminal, setRTab, setLTab, review, browser, workerDialog, teamDialog, manageDialog, toast };
+window.__office = { S, office, panes, panes2, board, select, openWorkerTerminal, setRTab, setLTab, review, editor, browser, workerDialog, teamDialog, manageDialog, toast };
 
 // ---- command palette (⌘K) ------------------------------------------------------
 const palette = (() => {
@@ -741,7 +744,7 @@ const palette = (() => {
     const ws = S.ws?.workers || [];
     return [
       ...[['office', 'Ofis'], ['code', 'Kod']].map(([k, n]) => ({ g: 'Görünüm', n: `${n} görünümü`, run: () => setLTab(k) })),
-      ...[['chat', 'Sohbet'], ['terminal', 'Terminal'], ['board', 'Görevler'], ['review', 'İnceleme'], ['reports', 'Raporlar'], ['memory', 'Hafıza'], ['browser', 'Tarayıcı'], ['skills', 'Beceriler'], ['decisions', 'Kararlar'], ['hub', 'Hub']].map(([k, n]) => ({ g: 'Görünüm', n: `${n} görünümü`, run: () => setRTab(k) })),
+      ...[['chat', 'Sohbet'], ['terminal', 'Terminal'], ['board', 'Görevler'], ['editor', 'Editör'], ['review', 'İnceleme'], ['reports', 'Raporlar'], ['memory', 'Hafıza'], ['browser', 'Tarayıcı'], ['skills', 'Beceriler'], ['decisions', 'Kararlar'], ['hub', 'Hub']].map(([k, n]) => ({ g: 'Görünüm', n: `${n} görünümü`, run: () => setRTab(k) })),
       ...ws.flatMap((w) => [{ g: 'Çalışan', n: `${w.name} · ${w.role} — seç`, run: () => { setLTab('office'); select(w.id); } }, { g: 'Çalışan', n: `${w.name} — terminalini aç`, run: () => openWorkerTerminal(w.id) }]),
       ...Object.entries(THEMES).map(([k, t]) => ({ g: 'Tema', n: `${t.name} temasına geç`, run: () => applyTheme(k) })),
       { g: 'İşlem', n: 'Çalışan ekle', run: () => (S.ws ? workerDialog() : wsDialog()) },

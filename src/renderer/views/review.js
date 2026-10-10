@@ -39,7 +39,8 @@ export class ReviewView {
 
   async pick(file, draw = true) {
     this.file = file; this.compose = null; this.rows = [];
-    try { this.rows = parseDiff(await this.api.reviewDiff({ id: this.sel, file })); } catch (e) { this.toast(String(e.message || e), 'err'); }
+    const d = await this.api.reviewDiff({ id: this.sel, file });
+    if (d?.error) this.toast(d.error, 'err'); else this.rows = parseDiff(d);
     if (draw) this.render();
   }
 

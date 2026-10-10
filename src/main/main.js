@@ -18,6 +18,7 @@ const { ENGINES, findBin } = require('./engines');
 const worktree = require('./worktree');
 const { Stt } = require('./stt');
 const { Chat } = require('./chat');
+const files = require('./files');
 const { Decisions } = require('./decisions');
 const { Skills } = require('./skills');
 const speaker = require('./speak');
@@ -390,6 +391,29 @@ async function createWindow() {
     if (!workers.running(w.id)) workers.start(ws, w.id);
     workers.send(ws, w.id, text);
     return { file };
+  });
+  const rootOf = (root) => {
+    const ws = need();
+    if (!root || root === 'project') return { ws, dir: ws.dir, w: null };
+    const w = ws.workers.find((x) => x.id === root);
+    if (!w?.worktreePath || !fs.existsSync(w.worktreePath)) throw new Error('Bu çalışanın worktree klasörü yok.');
+    return { ws, dir: w.worktreePath, w };
+  };
+  H('fs-roots', () => { const ws = need(); return [{ id: 'project', label: ws.name, dir: ws.dir }, ...ws.workers.filter((w) => w.worktree && w.worktreePath && fs.existsSync(w.worktreePath)).map((w) => ({ id: w.id, label: `${w.name} · dal`, dir: w.worktreePath }))]; });
+  H('fs-list', ({ root, path: p }) => files.list(rootOf(root).dir, p || ''));
+  H('fs-read', ({ root, path: p }) => files.read(rootOf(root).dir, p));
+  H('fs-write', ({ root, path: p, text }) => files.write(rootOf(root).dir, p, text));
+  H('fs-mtime', ({ root, path: p }) => files.mtime(rootOf(root).dir, p));
+  H('fs-walk', ({ root }) => files.walk(rootOf(root).dir));
+  H('editor-send', ({ worker, file, from, to, code, comment }) => {
+    const { ws } = rootOf('project');
+    const w = ws.workers.find((x) => x.id === worker);
+    if (!w) throw new Error('Çalışan yok.');
+    const where = from ? `${file}:${from}${to && to !== from ? `-${to}` : ''}` : file;
+    const snippet = code ? `\n\`\`\`\n${String(code).slice(0, 3000)}\n\`\`\`` : '';
+    if (!workers.running(w.id)) workers.start(ws, w.id);
+    workers.send(ws, w.id, `[Kod · Sahip] ${where}${snippet}\n${String(comment || '').slice(0, 1500) || '(bu koda bak)'}`);
+    return true;
   });
   H('review-list', () => {
     const ws = activeWs(); if (!ws) return [];

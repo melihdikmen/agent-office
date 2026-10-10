@@ -3,6 +3,7 @@
 module.exports = [
   { version: '0.11.0', date: '2026-10-10',
     items: [
+      'Kod editörü: proje ya da çalışanın dalındaki dosyaları aç, renkli kodla düzenle, ⌘S ile kaydet; seçili kodu yorumla bir çalışana gönder; ajan dosyayı değiştirirse yenilenir',
       'Takım sohbeti: takıma yaz (lider alır, görevlere böler) ya da @ad ile birine yaz; cevaplar ve ajanlar arası mesajlar da orada',
       'İnceleme sekmesi: her çalışanın dalını dosya dosya karşılaştır, satıra yorum bırak (çalışana iletilir), commit / birleştir / PR aç',
       'Tarayıcıda işaretle: sayfada noktalar koy, not yaz, numaralı ekran görüntüsüyle bir çalışana gönder',
@@ -11,6 +12,7 @@ module.exports = [
       'Hafıza aramasında eş anlamlı kelimeler ve yazım hatası toleransı; ajanlar beceri önerebilir, sen onaylarsın',
     ],
     en: [
+      'Code editor: open files from the project or a worker\'s branch, edit with syntax colours, save with ⌘S; send the selected code with a comment to a worker; the file refreshes when an agent changes it',
       'Team chat: write to the team (the lead takes it and splits it into tasks) or to one person with @name; answers and agent-to-agent messages show up there too',
       'Review tab: compare each worker\'s branch file by file, comment on a line (sent to the worker), commit / merge / open a PR',
       'Annotate in the browser: drop points on a page, add notes and send a numbered screenshot to a worker',
