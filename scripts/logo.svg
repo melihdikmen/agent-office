@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b3358"/><stop offset="1" stop-color="#0e1120"/></linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a9b4ff"/><stop offset="1" stop-color="#5d6ae0"/></linearGradient>
+    <linearGradient id="side" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4752c4"/><stop offset="1" stop-color="#2a3190"/></linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.38" r="0.6"><stop offset="0" stop-color="#8d9bff" stop-opacity=".35"/><stop offset="1" stop-color="#8d9bff" stop-opacity="0"/></radialGradient>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#000" flood-opacity=".5"/></filter>
+    <filter id="sh2" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#0a0c20" flood-opacity=".55"/></filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="190" fill="url(#bg)" filter="url(#sh)"/>
+  <rect x="100" y="100" width="824" height="824" rx="190" fill="url(#glow)"/>
+  <rect x="102" y="102" width="820" height="820" rx="188" fill="none" stroke="#ffffff" stroke-opacity=".10" stroke-width="3"/>
+  <!-- isometric office floor -->
+  <g filter="url(#sh2)">
+    <path d="M512 520 L812 640 L512 760 L212 640 Z" fill="url(#floor)"/>
+    <path d="M212 640 L512 760 L512 800 L212 680 Z" fill="url(#side)"/>
+    <path d="M812 640 L512 760 L512 800 L812 680 Z" fill="#3a44ae"/>
+  </g>
+  <path d="M512 540 L772 644 L512 748 L252 644 Z" fill="none" stroke="#ffffff" stroke-opacity=".25" stroke-width="4" stroke-dasharray="2 18" stroke-linecap="round"/>
+  <!-- terminal screen -->
+  <g filter="url(#sh2)">
+    <rect x="332" y="236" width="360" height="270" rx="40" fill="#0a0c16" stroke="#8d9bff" stroke-width="10"/>
+    <path d="M404 322 L462 370 L404 418" fill="none" stroke="#8d9bff" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="496" y="404" width="110" height="28" rx="14" fill="#eef0fb"/>
+  </g>
+  <!-- agents -->
+  <g filter="url(#sh2)">
+    <g transform="translate(250 590)"><rect x="-34" y="0" width="68" height="80" rx="30" fill="#4ade9a"/><circle cx="0" cy="-26" r="34" fill="#c9f7e0"/></g>
+    <g transform="translate(774 590)"><rect x="-34" y="0" width="68" height="80" rx="30" fill="#fbbf4d"/><circle cx="0" cy="-26" r="34" fill="#fff0cc"/></g>
+    <g transform="translate(512 676)"><rect x="-38" y="0" width="76" height="88" rx="32" fill="#6aa5ff"/><circle cx="0" cy="-28" r="38" fill="#d6e6ff"/></g>
+  </g>
+</svg>
