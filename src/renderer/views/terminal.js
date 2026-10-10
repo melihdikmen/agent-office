@@ -7,6 +7,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { pruneTree, parseSaved } from './layout-tree.mjs';
 
+import { termTheme } from './themes.js';
 const SIZES = { S: 11, M: 13, L: 15 };
 const THEME = {
   background: '#0a0c16', foreground: '#eef0fb', cursor: '#8d9bff', cursorAccent: '#0a0c16', selectionBackground: 'rgba(141,155,255,0.3)',
@@ -49,6 +50,7 @@ export class Panes {
     this.workersById = new Map();
     this.key = null;                  // workspace id the layout is saved under
     this.restored = false;
+    window.addEventListener('themechange', () => { for (const { term } of this.terms.values()) term.options.theme = termTheme(); });
     api.on('pty-data', ({ id, data }) => this.terms.get(id)?.term.write(data));
     api.on('pty-exit', ({ id }) => { const t = this.terms.get(id); if (t) t.info.exited = true; this.render(); });
     window.addEventListener('resize', () => this.fitAll());
@@ -172,7 +174,7 @@ export class Panes {
   }
 
   attach(id) {
-    const term = new Terminal({ fontSize: SIZES[this.size], fontFamily: '"Hack", "JetBrains Mono", "SF Mono", Menlo, monospace', theme: THEME, cursorBlink: true, scrollback: 5000, allowProposedApi: true, macOptionIsMeta: true });
+    const term = new Terminal({ fontSize: SIZES[this.size], fontFamily: '"Hack", "JetBrains Mono", "SF Mono", Menlo, monospace', theme: termTheme(), cursorBlink: true, scrollback: 5000, allowProposedApi: true, macOptionIsMeta: true });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());

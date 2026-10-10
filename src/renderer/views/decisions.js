@@ -27,9 +27,9 @@ export class DecisionsView {
     const card = (d) => `<div class="dc" data-id="${d.id}">
       <div class="dc-head"><b>${d.id}</b> · ${esc(who(d))}${d.task ? ` · ${esc(d.task)}` : ''}<span class="spacer"></span><span class="muted">${ago(d.ts)}</span></div>
       <div class="dc-q">${esc(d.question)}</div>${d.details ? `<div class="dc-d">${esc(d.details)}</div>` : ''}
-      <div class="dc-opts">${d.options.map((o) => `<button class="btn small" data-opt="${esc(o)}">${esc(o)}</button>`).join('')}
+      <div class="dc-opts">${d.options.map((o) => `<button class="btn small ${o === d.recommended ? 'primary' : ''}" data-opt="${esc(o)}">${o === d.recommended ? '★ ' : ''}${esc(o)}</button>`).join('')}
         <button class="btn small ghost" data-opt="${esc(tt('Karar senin: kendi yargınla ilerle.', 'Your call: use your own judgement.'))}">${tt('Sen karar ver', 'You decide')}</button></div>
-      <div class="dc-free"><input data-free="${d.id}" placeholder="${tt('Başka bir cevap yaz, Enter ile gönder…', 'Write another answer, Enter to send…')}"></div></div>`;
+      ${d.autoAt ? `<div class="muted dc-auto">⏱ ${tt('Cevap vermezsen', 'If you do not answer')} ${new Date(d.autoAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} ${tt('civarında şu seçilir', 'this is picked')}: <b>${esc(d.recommended)}</b></div>` : ''}<div class="dc-free"><input data-free="${d.id}" placeholder="${tt('Başka bir cevap yaz, Enter ile gönder…', 'Write another answer, Enter to send…')}"></div></div>`;
     this.root.innerHTML = `<div class="dc-wrap">
       ${open.length ? open.map(card).join('') : `<div class="dc-empty">${tt('Bekleyen karar yok. Bir ajan seçenekli bir soru sorunca burada görünür ve bildirim gelir.', 'No pending decisions. When an agent asks you a question with options it shows up here, with a notification.')}</div>`}
       ${done.length ? `<h4 class="dc-h">${tt('Cevaplananlar', 'Answered')}</h4>${done.slice(0, 30).map((d) => `<div class="dc done"><div class="dc-head"><b>${d.id}</b> · ${esc(who(d))}<span class="spacer"></span><span class="muted">${ago(d.answeredTs || d.ts)}</span></div><div class="dc-q">${esc(d.question)}</div><div class="dc-a">→ ${esc(d.answer)}</div></div>`).join('')}` : ''}</div>`;

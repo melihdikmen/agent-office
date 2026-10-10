@@ -46,6 +46,31 @@ class Skills {
     return (cur || list.at(-1)).id;
   }
 
+  // Proposals: a worker noticed a repeating way of working and drafts a skill; the owner decides.
+  proposals() { return (this.store.data.skillProposals ||= []); }
+
+  propose(worker, { name, description, body }) {
+    const n = String(name || '').trim().slice(0, 60), d = String(description || '').trim().slice(0, 400), b = String(body || '').trim().slice(0, 20000);
+    if (!n || !d || !b) throw new Error('Ad, ne zaman kullanılacağı ve içerik gerekli.');
+    const list = this.proposals();
+    const same = list.find((p) => p.name.toLowerCase() === n.toLowerCase());
+    const p = { id: same?.id || `sp-${Date.now().toString(36)}`, by: worker.id, byName: worker.name, name: n, description: d, body: b, ts: Date.now() };
+    if (same) Object.assign(same, p); else list.unshift(p);
+    if (list.length > 20) list.length = 20;
+    this.store.save();
+    return p;
+  }
+
+  acceptProposal(id) {
+    const p = this.proposals().find((x) => x.id === id);
+    if (!p) throw new Error('Öneri bulunamadı.');
+    const sid = this.save({ name: p.name, description: p.description, body: p.body });
+    this.dismissProposal(id);
+    return sid;
+  }
+
+  dismissProposal(id) { this.store.data.skillProposals = this.proposals().filter((x) => x.id !== id); this.store.save(); }
+
   remove(id) {
     this.store.data.skills = this.custom().filter((s) => s.id !== id);
     for (const ws of this.store.workspaces) for (const w of ws.workers) if (w.skills) w.skills = w.skills.filter((x) => x !== id);

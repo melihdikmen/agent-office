@@ -7,13 +7,13 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 export class SkillsView {
   constructor(root, api, { toast, openDialog, closeDialog, dlgBody }) {
     Object.assign(this, { root, api, toast, openDialog, closeDialog, dlgBody });
-    this.skills = []; this.workers = []; this.key = '';
+    this.skills = []; this.workers = []; this.props = []; this.key = '';
     root.addEventListener('click', (e) => this.click(e));
   }
 
-  set(skills, workers) {
-    this.skills = skills || []; this.workers = workers;
-    const key = JSON.stringify([this.skills.map((s) => [s.id, s.name, s.description]), workers.map((w) => [w.id, w.name, w.skills, w.running])]);
+  set(skills, workers, props = []) {
+    this.skills = skills || []; this.workers = workers; this.props = props;
+    const key = JSON.stringify([props.map((p) => p.id), this.skills.map((s) => [s.id, s.name, s.description]), workers.map((w) => [w.id, w.name, w.skills, w.running])]);
     if (key === this.key) return;
     this.key = key; this.render();
   }
@@ -29,7 +29,8 @@ export class SkillsView {
 
   render() {
     const builtin = this.skills.filter((s) => s.builtin), mine = this.skills.filter((s) => !s.builtin);
-    this.root.innerHTML = `<div class="sk-wrap"><div class="sk-head"><h3>${tt('Beceriler', 'Skills')}</h3><span class="muted">${tt('Çalışana bir beceri ver: ilgili iş gelince o yöntemi izler.', 'Give a worker a skill: it follows that method when the work matches.')}</span><span class="spacer"></span><button class="btn small primary" data-act="new">＋ ${tt('Yeni beceri', 'New skill')}</button></div>
+    const prop = (p) => `<div class="sk prop" data-pid="${esc(p.id)}"><div class="sk-top"><b>${esc(p.name)}</b><span class="muted">${tt('öneren', 'by')} ${esc(p.byName)}</span><span class="spacer"></span><button class="link" data-act="pview">${tt('gör', 'view')}</button><button class="btn small primary" data-act="paccept">${tt('Kabul et', 'Accept')}</button><button class="btn small" data-act="pdismiss">${tt('Reddet', 'Dismiss')}</button></div><div class="sk-desc">${esc(p.description)}</div></div>`;
+    this.root.innerHTML = `<div class="sk-wrap">${this.props.length ? `<h4 class="dc-h">${tt('Önerilen beceriler', 'Suggested skills')} · ${this.props.length}</h4>${this.props.map(prop).join('')}` : ''}<div class="sk-head"><h3>${tt('Beceriler', 'Skills')}</h3><span class="muted">${tt('Çalışana bir beceri ver: ilgili iş gelince o yöntemi izler.', 'Give a worker a skill: it follows that method when the work matches.')}</span><span class="spacer"></span><button class="btn" data-act="suggest" title="${tt('Bir çalışandan hafızasına bakıp beceri önermesini iste', 'Ask a worker to suggest skills from its memory')}">${tt('✦ Ekipten öner', '✦ Ask the team')}</button><button class="btn small primary" data-act="new">＋ ${tt('Yeni beceri', 'New skill')}</button></div>
       ${mine.length ? `<h4 class="dc-h">${tt('Benim becerilerim', 'My skills')}</h4>${mine.map((s) => this.card(s)).join('')}` : ''}
       <h4 class="dc-h">${tt('Hazır beceriler', 'Built-in skills')}</h4>${builtin.map((s) => this.card(s)).join('')}
       <p class="muted sk-note">${tt('Claude çalışanları becerileri yalnızca o oturum için yükler, projene dosya yazılmaz. Codex ve Gemini çalışanlarına metin olarak brifinge eklenir.', 'Claude workers load skills for that session only; nothing is written into your project. Codex and Gemini workers get the text in their briefing.')}</p></div>`;
@@ -48,6 +49,14 @@ export class SkillsView {
     const card = e.target.closest('.sk');
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act === 'new') return this.form();
+    if (act === 'suggest') { const r = await this.api.skillSuggestAsk({}); return this.toast(r?.error || tt(`${r.name}'dan öneri istendi; hazır olunca burada görünür.`, `Asked ${r.name} for suggestions; they show up here.`), r?.error ? 'err' : undefined); }
+    const pcard = e.target.closest('[data-pid]');
+    if (pcard) {
+      const p = this.props.find((x) => x.id === pcard.dataset.pid); if (!p) return;
+      if (act === 'paccept') { const r = await this.api.skillProposalAccept({ id: p.id }); return this.toast(r?.error || tt('Beceri eklendi', 'Skill added'), r?.error ? 'err' : undefined); }
+      if (act === 'pdismiss') return this.api.skillProposalDismiss({ id: p.id });
+      if (act === 'pview') return this.openDialog(`<form><h3>${esc(p.name)}</h3><p class="muted">${esc(p.description)}</p><pre class="memo">${esc(p.body)}</pre><div class="dlg-actions"><span class="spacer"></span><button value="cancel" class="btn">${tt('Kapat', 'Close')}</button></div></form>`, () => {});
+    }
     const s = card && this.skills.find((x) => x.id === card.dataset.id);
     const tg = e.target.closest('[data-toggle]');
     if (tg && s) {

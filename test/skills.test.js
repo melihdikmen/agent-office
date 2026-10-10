@@ -55,3 +55,16 @@ test('briefing section for engines without skills', () => {
   assert.deepEqual(sk.briefing({ skills: [] }), []);
   assert.match(sk.briefing({ skills: ['spike'] }).join('\n'), /## Skills[\s\S]*### Spike/);
 });
+
+test('proposals: a worker drafts a skill, the owner accepts it into the library', () => {
+  const store = { data: {}, workspaces: [], save() {} };
+  const sk = new Skills(store, require('os').tmpdir());
+  const p = sk.propose({ id: 'w1', name: 'Ada' }, { name: 'Sürüm notu akışı', description: 'Use when shipping a release.', body: '1. Topla\n2. Yaz' });
+  assert.equal(sk.proposals().length, 1);
+  sk.propose({ id: 'w1', name: 'Ada' }, { name: 'sürüm notu akışı', description: 'Use when shipping.', body: 'x' });   // same name updates
+  assert.equal(sk.proposals().length, 1);
+  assert.throws(() => sk.propose({ id: 'w1', name: 'Ada' }, { name: 'a', description: '', body: 'b' }), /gerekli/);
+  const id = sk.acceptProposal(p.id);
+  assert.ok(sk.find(id));
+  assert.equal(sk.proposals().length, 0);
+});

@@ -32,3 +32,10 @@ test('newer notes win ties', () => {
   const m = rig([{ text: 'deploy adımı eski' }, { text: 'deploy adımı yeni' }]);
   assert.match(m.search({}, 'deploy')[0], /yeni/);
 });
+
+test('neighbouring concepts and typos still find the note', () => {
+  const m = rig([{ text: 'Şifre sıfırlama e-postası 15 dakika geçerli' }, { text: 'Kahve makinesi bozuk' }]);
+  assert.match(m.search({}, 'parola unuttum')[0] || '', /Şifre/);        // parola ~ şifre
+  assert.match(m.search({}, 'sifirlma')[0] || '', /Şifre/);               // typo
+  assert.deepEqual(m.search({}, 'galaksi'), []);
+});

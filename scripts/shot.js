@@ -74,6 +74,15 @@ app.on('browser-window-created', (_e, w) => {
     await shot('edit', `(() => { const o = window.__office; o.setLTab('office'); document.getElementById('editBtn').click(); })()`, 1200);
     await shot('hub', `(() => { const o = window.__office; document.getElementById('editBtn').click(); o.setRTab('hub'); })()`, 1000);
     await shot('browser', `(() => { const o = window.__office; o.setRTab('browser'); })()`, 2500);
+    await shot('chat', `(async () => { const o = window.__office; await window.office.chatSend({ text: 'Giriş ekranına şifremi unuttum akışı ekleyelim, @' + o.S.ws.workers[1].name + ' tasarımı yapsın.' }); o.setRTab('chat'); })()`, 2500);
+    await shot('board-list', `(() => { const o = window.__office; o.setRTab('board'); o.board.open = null; o.board.mode = 'list'; o.board.render(); })()`, 1000);
+    await shot('theme-light', `(() => { const o = window.__office; o.setRTab('reports'); document.querySelector('.rp')?.click(); window.__applyTheme && window.__applyTheme('gunduz'); })()`, 1200);
+    await js(`(() => { const o = window.__office; o.setRTab('browser'); const b = o.browser; b.view.src = 'data:text/html,' + encodeURIComponent('<body style="font:20px sans-serif;padding:30px"><h1 id=t>Merhaba</h1><button class=cta>Kaydet</button></body>'); b.started = true; })()`);
+    await new Promise((r) => setTimeout(r, 1500));
+    await shot('annot', `(() => { const o = window.__office; const b = o.browser; b.toggle(true); b.marks = [{ x: 80, y: 90, text: 'Başlık çok küçük' }, { x: 120, y: 160, text: 'Düğme mavi olsun' }]; b.draw(); })()`, 800);
+    console.log('annot-send', await js(`(async () => { const b = window.__office.browser; const r = await window.office.annotSend ? 'api-ok' : 'no-api'; await b.send(); return r; })()`));
+    await shot('review', `(() => { window.__applyTheme('gece'); window.__office.setRTab('review'); })()`, 1200);
+    await shot('skills', `(() => { window.__office.setRTab('skills'); })()`, 1000);
     await shot('hire', `(() => { const o = window.__office; o.setRTab('terminal'); o.workerDialog(); })()`, 1000);
     await js(`(async () => { for (const w of window.__office.S.ws.workers) await window.office.workerStop({ id: w.id }); })()`);
     await wait(800);

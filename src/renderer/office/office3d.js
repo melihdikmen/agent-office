@@ -34,6 +34,8 @@ export class Scene3D {
 
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.Fog(0x100e0c, 60, 120);
+    const backdrop = () => { const c = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--term-bg').trim() || '#100e0c'); this.renderer.setClearColor(c); this.scene.fog.color.copy(c); };
+    backdrop(); window.addEventListener('themechange', backdrop);
     this.camera = new THREE.PerspectiveCamera(38, 1, 0.5, 200);
     this.view = { az: 0.0, el: 0.95, dist: 40, tx: 16, tz: 13 };
     this.hemi = new THREE.HemisphereLight(0xfff1e0, 0x3a3430, 1.15);

@@ -33,3 +33,17 @@ test('answer types the reply into the worker terminal (starting it if asleep) an
   assert.throws(() => d.answer(ws, 'K-1', 'x'), /zaten/);
   assert.throws(() => d.answer(ws, 'K-9', 'x'), /yok/);
 });
+
+test('a recommended option is applied automatically once its timer runs out', () => {
+  const { d, ws, sent } = rig();
+  const k = d.ask(ws, 'a1', { question: 'Hangi veritabanı?', options: ['SQLite', 'Postgres'], recommended: 'postgres', auto_min: 5 });
+  assert.equal(k.recommended, 'Postgres');
+  d.tick(ws, k.ts + 4 * 60000);
+  assert.equal(d.open(ws).length, 1);
+  d.tick(ws, k.ts + 5 * 60000);
+  assert.equal(d.open(ws).length, 0);
+  assert.match(sent[0][1], /Postgres/);
+  // no timer without a valid recommendation
+  const j = d.ask(ws, 'a1', { question: 'x?', options: ['a', 'b'], recommended: 'zzz', auto_min: 5 });
+  assert.equal(j.autoAt, null);
+});

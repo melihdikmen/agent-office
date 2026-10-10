@@ -17,12 +17,14 @@
     </div>
     <div class="nav-sep"></div>
     <div class="nav-group right-tabs">
+      <button data-rtab="chat" title="Takım sohbeti"><i class="ni">✉</i><span class="nl">Sohbet</span><span id="chatCount" class="nb"></span></button>
       <button data-rtab="terminal" class="on" title="Terminal"><i class="ni">▸_</i><span class="nl">Terminal</span></button>
       <button data-rtab="board" title="Görevler"><i class="ni">☰</i><span class="nl">Görevler</span><span id="taskCount" class="nb"></span></button>
+      <button data-rtab="review" title="Dal karşılaştırma ve inceleme"><i class="ni">⎇</i><span class="nl">İnceleme</span></button>
       <button data-rtab="reports" title="Raporlar"><i class="ni">▤</i><span class="nl">Raporlar</span><span id="reportCount" class="nb"></span></button>
       <button data-rtab="memory" title="Hafıza"><i class="ni">◎</i><span class="nl">Hafıza</span></button>
       <button data-rtab="browser" title="Tarayıcı"><i class="ni">◐</i><span class="nl">Tarayıcı</span></button>
-      <button data-rtab="skills" title="Beceriler"><i class="ni">✦</i><span class="nl">Beceriler</span></button>
+      <button data-rtab="skills" title="Beceriler"><i class="ni">✦</i><span class="nl">Beceriler</span><span id="skillCount" class="nb"></span></button>
       <button data-rtab="decisions" title="Kararlar"><i class="ni">⚑</i><span class="nl">Kararlar</span><span id="decisionCount" class="nb warn"></span></button>
       <button data-rtab="hub" title="Hub"><i class="ni">⬡</i><span class="nl">Hub</span></button>
     </div>
@@ -87,7 +89,9 @@
         </div>
         <div id="panes" class="panes"></div>
       </section>
+      <section id="rtab-chat" class="rtab hidden"></section>
       <section id="rtab-board" class="rtab hidden"></section>
+      <section id="rtab-review" class="rtab hidden"></section>
       <section id="rtab-reports" class="rtab hidden"></section>
       <section id="rtab-memory" class="rtab hidden"></section>
       <section id="rtab-browser" class="rtab hidden"></section>

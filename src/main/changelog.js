@@ -1,6 +1,23 @@
 'use strict';
 // What changed per release (Turkish + English); shown after an update and from the ⓘ button.
 module.exports = [
+  { version: '0.11.0', date: '2026-10-10',
+    items: [
+      'Takım sohbeti: takıma yaz (lider alır, görevlere böler) ya da @ad ile birine yaz; cevaplar ve ajanlar arası mesajlar da orada',
+      'İnceleme sekmesi: her çalışanın dalını dosya dosya karşılaştır, satıra yorum bırak (çalışana iletilir), commit / birleştir / PR aç',
+      'Tarayıcıda işaretle: sayfada noktalar koy, not yaz, numaralı ekran görüntüsüyle bir çalışana gönder',
+      '6 tema (Gece, Derin, Kömür, Fosfor, Kağıt, Gündüz), görevlerde liste görünümü, raporlarda tam ekran okuma',
+      'Karar sorularında önerilen seçenek ve süre: cevap vermezsen öneri otomatik uygulanır',
+      'Hafıza aramasında eş anlamlı kelimeler ve yazım hatası toleransı; ajanlar beceri önerebilir, sen onaylarsın',
+    ],
+    en: [
+      'Team chat: write to the team (the lead takes it and splits it into tasks) or to one person with @name; answers and agent-to-agent messages show up there too',
+      'Review tab: compare each worker\'s branch file by file, comment on a line (sent to the worker), commit / merge / open a PR',
+      'Annotate in the browser: drop points on a page, add notes and send a numbered screenshot to a worker',
+      '6 themes (Night, Deep, Charcoal, Phosphor, Paper, Day), a list view for tasks, full-screen reading for reports',
+      'Decision questions can carry a recommended option and a timer: if you do not answer, the recommendation is applied',
+      'Memory search understands neighbouring words and typos; agents can propose skills and you approve them',
+    ] },
   { version: '0.10.0', date: '2026-10-10',
     items: [
       'Yeni yerleşim: solda dikey gezinme çubuğu, tek satırlık üst çubuk, ofisin altında ekip şeridi, altta durum çubuğu (hands-off anahtarı burada)',

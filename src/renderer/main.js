@@ -16,6 +16,10 @@ import { MemoryView } from './views/memory.js';
 import { WatchView } from './views/watch.js';
 import { BrowserView } from './views/browser.js';
 import { HubView } from './views/hub.js';
+import { ChatView } from './views/chat.js';
+import { ReviewView } from './views/review.js';
+import { THEMES, applyTheme, currentTheme } from './views/themes.js';
+applyTheme();
 
 const api = window.office;
 const $ = (s, el = document) => el.querySelector(s);
@@ -72,9 +76,11 @@ const board = new BoardView($('#rtab-board'), api, { onSelectWorker: select, onI
 const reports = new ReportsView($('#rtab-reports'), { api, toast, onOpenTask: (id) => { setRTab('board'); board.open = id; board.render(); } });
 const memory = new MemoryView($('#rtab-memory'), api);
 const watch = new WatchView($('#ltab-code'), api);
-const browser = new BrowserView($('#rtab-browser'));
+const browser = new BrowserView($('#rtab-browser'), { api, toast, workers: () => S.ws?.workers || [] });
 const decisionsView = new DecisionsView($('#rtab-decisions'), api, { toast, onCount: (n) => { $('#decisionCount').textContent = n ? String(n) : ''; $('#decisionCount').classList.toggle('hot', n > 0); } });
 const skillsView = new SkillsView($('#rtab-skills'), api, { toast, openDialog: (...a) => openDialog(...a), closeDialog: () => dlg.close(), dlgBody: () => dlgBody });
+const chatView = new ChatView($('#rtab-chat'), api, { toast, onUnread: (n) => { $('#chatCount').textContent = n ? String(n) : ''; } });
+const review = new ReviewView($('#rtab-review'), api, { toast });
 const hub = new HubView($('#rtab-hub'), api, { toast });
 
 // ---- state -------------------------------------------------------------------
@@ -113,13 +119,15 @@ function apply(st) {
   } else office.setWorkers([], S.guests);
   notify.set(st.notify);
   decisionsView.set(st.decisions, workers);
-  skillsView.set(st.skills, workers);
+  skillsView.set(st.skills, workers, st.skillProposals || []);
+  $('#skillCount').textContent = (st.skillProposals || []).length || '';
   firstRun(st);
   $('#tabInfo').classList.toggle('has', !!st.app?.update?.newer);
   $('#railDot').className = `rail-dot ${workers.some((w) => w.status === 'waiting') ? 'warn' : workers.some((w) => w.status === 'working') ? 'busy' : ''}`;
   panes.setKey(ws?.id); panes2.setKey(ws?.id ? `${ws.id}.L` : null);
   panes.setMeta(st.terminals, workers); panes2.setMeta(st.terminals, workers);
   board.set(ws?.tasks || [], workers);
+  chatView.set(ws?.chat || [], workers);
   reports.set(ws?.reports || [], workers);
   memory.setWorkers(workers);
   if (JSON.stringify(st.integrations) !== JSON.stringify(S.integrations)) { S.integrations = st.integrations; hub.setItems(st.integrations || []); }
@@ -294,7 +302,9 @@ function setRTab(t) {
   S.rtab = t;
   $$('[data-rtab]').forEach((b) => b.classList.toggle('on', b.dataset.rtab === t));
   $('#viewTitle').textContent = $(`[data-rtab="${t}"] .nl`)?.textContent || t;
-  for (const k of ['terminal', 'board', 'reports', 'memory', 'browser', 'skills', 'decisions', 'hub']) $(`#rtab-${k}`).classList.toggle('hidden', k !== t);
+  for (const k of ['chat', 'terminal', 'board', 'review', 'reports', 'memory', 'browser', 'skills', 'decisions', 'hub']) $(`#rtab-${k}`).classList.toggle('hidden', k !== t);
+  chatView.show(t === 'chat');
+  if (t === 'review') review.load();
   if (t === 'terminal') { panes.fitAll(); if (panes.focused) panes.focus(panes.focused); }
   if (t === 'memory') { memory.resize(); memory.refresh(); }
   if (t === 'browser') browser.show(); else browser.blur();
@@ -644,6 +654,7 @@ function aboutDialog() {
   openDialog(`<form><h3>Agent Office</h3>
     <div class="about-ver"><b>v${esc(a.version)}</b><span class="spacer"></span>
       <label class="row">${tt('Dil', 'Language')} <select name="uilang"><option value="tr" ${LANG === 'tr' ? 'selected' : ''}>Türkçe</option><option value="en" ${LANG === 'en' ? 'selected' : ''}>English</option></select></label></div>
+    <b>${tt('Tema', 'Theme')}</b><div class="theme-row">${Object.entries(THEMES).map(([k, t]) => `<button type="button" class="theme-chip ${currentTheme() === k ? 'on' : ''}" data-theme-pick="${k}"><i style="background:${t.vars.bg || '#10131f'};border-color:${t.vars.accent || '#8d9bff'}"></i>${t.name}</button>`).join('')}</div>
     <div class="upd ${u?.newer ? 'new' : ''}"><div>${u ? (u.newer ? `<b>${tt('Yeni sürüm', 'New version')} v${esc(u.version)}</b>${u.notes ? ` — ${esc(u.notes.slice(0, 160))}` : ''}` : tt('Güncelsin.', 'You are up to date.')) : tt('Güncelleme adresi girilmemiş.', 'No update address set.')}</div>
       <div class="row"><input name="feed" value="${esc(a.updateFeed)}" placeholder="${tt('Güncelleme adresi (JSON ya da GitHub releases/latest)', 'Update feed (JSON or GitHub releases/latest)')}">
       <button type="button" class="btn small" data-a="check">${tt('Denetle', 'Check')}</button>${u?.newer && u.url ? `<button type="button" class="btn small primary" data-a="download">${tt('İndir', 'Download')}</button>` : ''}</div></div>
@@ -654,6 +665,8 @@ function aboutDialog() {
   const form = $('form', dlgBody);
   form.uilang.onchange = async () => { await api.appAck({ lang: form.uilang.value }); try { localStorage.setItem('ao.lang', form.uilang.value); } catch { /* storage blocked */ } location.reload(); };
   dlgBody.onclick = async (e) => {
+    const tp = e.target.closest('[data-theme-pick]')?.dataset.themePick;
+    if (tp) { applyTheme(tp); dlgBody.querySelectorAll('[data-theme-pick]').forEach((b) => b.classList.toggle('on', b.dataset.themePick === tp)); return; }
     const act = e.target.closest('[data-a]')?.dataset.a;
     if (act === 'check') { const r = await api.updateCheck({ feed: form.feed.value }); if (r?.error) toast(r.error, 'err'); else { dlg.close(); setTimeout(aboutDialog, 100); } }
     if (act === 'download') api.openUrl({ url: u.url });
@@ -713,7 +726,8 @@ document.addEventListener('keydown', (e) => {
 });
 api.state().then((st) => { apply(st); if (!st.active) $('#noWs').classList.remove('hidden'); });
 
-window.__office = { S, office, panes, panes2, board, select, openWorkerTerminal, setRTab, setLTab, workerDialog, teamDialog, manageDialog, toast };
+window.__applyTheme = applyTheme;
+window.__office = { S, office, panes, panes2, board, select, openWorkerTerminal, setRTab, setLTab, review, browser, workerDialog, teamDialog, manageDialog, toast };
 
 // ---- command palette (⌘K) ------------------------------------------------------
 const palette = (() => {
@@ -727,8 +741,9 @@ const palette = (() => {
     const ws = S.ws?.workers || [];
     return [
       ...[['office', 'Ofis'], ['code', 'Kod']].map(([k, n]) => ({ g: 'Görünüm', n: `${n} görünümü`, run: () => setLTab(k) })),
-      ...[['terminal', 'Terminal'], ['board', 'Görevler'], ['reports', 'Raporlar'], ['memory', 'Hafıza'], ['browser', 'Tarayıcı'], ['skills', 'Beceriler'], ['decisions', 'Kararlar'], ['hub', 'Hub']].map(([k, n]) => ({ g: 'Görünüm', n: `${n} görünümü`, run: () => setRTab(k) })),
+      ...[['chat', 'Sohbet'], ['terminal', 'Terminal'], ['board', 'Görevler'], ['review', 'İnceleme'], ['reports', 'Raporlar'], ['memory', 'Hafıza'], ['browser', 'Tarayıcı'], ['skills', 'Beceriler'], ['decisions', 'Kararlar'], ['hub', 'Hub']].map(([k, n]) => ({ g: 'Görünüm', n: `${n} görünümü`, run: () => setRTab(k) })),
       ...ws.flatMap((w) => [{ g: 'Çalışan', n: `${w.name} · ${w.role} — seç`, run: () => { setLTab('office'); select(w.id); } }, { g: 'Çalışan', n: `${w.name} — terminalini aç`, run: () => openWorkerTerminal(w.id) }]),
+      ...Object.entries(THEMES).map(([k, t]) => ({ g: 'Tema', n: `${t.name} temasına geç`, run: () => applyTheme(k) })),
       { g: 'İşlem', n: 'Çalışan ekle', run: () => (S.ws ? workerDialog() : wsDialog()) },
       { g: 'İşlem', n: 'Takım ekle', run: () => (S.ws ? teamDialog() : wsDialog()) },
       { g: 'İşlem', n: 'Yeni shell terminali', run: () => $('#addShell').click() },

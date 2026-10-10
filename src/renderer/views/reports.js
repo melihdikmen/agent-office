@@ -11,6 +11,7 @@ export class ReportsView {
     this.root = root; this.onOpenTask = onOpenTask; this.api = api; this.toast = toast;
     this.reports = []; this.workers = []; this.open = new Set(); this.drafts = new Map(); this.anchors = new Map(); this.key = '';
     root.addEventListener('click', (e) => this.click(e));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.full) { this.full = null; this.render(); } });
     root.addEventListener('input', (e) => { const box = e.target.closest('.rv-box'); if (box && e.target.matches('textarea')) this.drafts.set(box.dataset.report, e.target.value); });
   }
   who(id) { return id === 'user' ? tt('Sahip', 'Owner') : this.workers.find((w) => w.id === id)?.name || id; }
@@ -33,12 +34,13 @@ export class ReportsView {
 
   item(r) {
     const failed = r.evidence.filter((e) => !e.ok).length;
-    const open = this.open.has(r.id);
+    const full = this.full === r.id;
+    const open = this.open.has(r.id) || full;
     const rv = REVIEW[r.review?.status || 'pending'];
     const cm = (type, ref) => `<button class="cm" data-anchor="${type}:${esc(ref)}" title="${tt('Buna yorum yaz', 'Comment on this')}">💬</button>`;
     const anchor = this.anchors.get(r.id);
-    return `<div class="rp ${failed ? 'warn' : 'ok'} ${open ? 'open' : ''}" data-id="${esc(r.id)}">
-      <div class="rp-top"><span class="tid">${r.taskId}</span><b>${esc(r.title)}</b><span class="spacer"></span><span class="muted">${esc(this.who(r.by))} · ${when(r.ts)}</span><span class="rv rv-${r.review?.status || 'pending'}" title="${tt(rv[1], rv[2])}">${rv[0]}</span><span class="badge">${failed ? `⚠ ${failed} ${tt('başarısız', 'failed')}` : `✓ ${r.evidence.length} ${tt('doğrulama', 'checks')}`}</span></div>
+    return `<div class="rp ${failed ? 'warn' : 'ok'} ${open ? 'open' : ''} ${full ? 'full' : ''}" data-id="${esc(r.id)}">
+      <div class="rp-top"><span class="tid">${r.taskId}</span><b>${esc(r.title)}</b><span class="spacer"></span><button class="cm full-btn" data-full="${esc(r.id)}" title="${tt('Tam ekran oku (Esc ile kapat)', 'Read full screen (Esc to close)')}">${full ? '✕' : '⛶'}</button><span class="muted">${esc(this.who(r.by))} · ${when(r.ts)}</span><span class="rv rv-${r.review?.status || 'pending'}" title="${tt(rv[1], rv[2])}">${rv[0]}</span><span class="badge">${failed ? `⚠ ${failed} ${tt('başarısız', 'failed')}` : `✓ ${r.evidence.length} ${tt('doğrulama', 'checks')}`}</span></div>
       <p class="rp-sum">${esc(r.summary)}</p>
       ${open ? `<div class="rp-body">${cm('summary', '')}${r.evidence.length ? `<ul class="evidence">${r.evidence.map((e, i) => `<li class="${e.ok ? 'ok' : 'fail'}"><b>${e.ok ? '✓' : '✗'} ${esc(e.label)}</b>${e.detail ? `<span>${esc(e.detail)}</span>` : ''}${cm('evidence', `${i}|${e.label}`)}</li>`).join('')}</ul>` : ''}
         ${r.files.length ? `<div class="files">${r.files.map((f) => `<code data-anchor="file:${esc(f)}" title="${tt('Yorum yaz', 'Comment')}">${esc(f)}</code>`).join('')}</div>` : ''}
@@ -59,6 +61,9 @@ export class ReportsView {
   }
 
   click(e) {
+    const fb = e.target.closest('[data-full]');
+    if (fb) { this.full = this.full === fb.dataset.full ? null : fb.dataset.full; return this.render(); }
+    if (this.full && !e.target.closest('.rp-body, .rp-top, .rp-sum')) { this.full = null; return this.render(); }
     const t = e.target.closest('[data-task]');
     if (t) return this.onOpenTask?.(t.dataset.task);
     const rv = e.target.closest('[data-rv]');

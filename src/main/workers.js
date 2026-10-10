@@ -60,6 +60,7 @@ function briefing(ws, worker, memoryFile, extra = []) {
     '## Memory',
     `- Your memory file: ${memoryFile}. Read it when a task starts. It is yours alone; teammates have their own.`,
     '- When you truly need the owner to choose (two real options, a risky or hard-to-undo step), call ask_owner with 2-4 options and a one-line question; it does not block: carry on with independent work and the answer arrives in your terminal as "[Karar K-n] …". Do not ask about small, reversible things.',
+    '- Team chat: messages from the owner arrive as "[Sohbet · …]". Your normal reply when you finish is mirrored into the chat; use message(to: "sahip") for anything you want the owner to see immediately.',
     '- Record decisions, preferences the owner stated, and things you learned with memory_note (short, concrete, with tags). Search the team memory with memory_search before asking a teammate something that was probably decided already.',
     '',
     '## Working rules',

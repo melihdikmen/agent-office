@@ -9,6 +9,7 @@ export class BoardView {
   constructor(root, api, { onSelectWorker, onImport }) {
     this.root = root; this.api = api; this.onSelectWorker = onSelectWorker; this.onImport = onImport;
     this.tasks = []; this.workers = []; this.open = null; this.q = '';
+    try { this.mode = localStorage.getItem('ao.boardMode') === 'list' ? 'list' : 'kanban'; } catch { this.mode = 'kanban'; }
     root.addEventListener('click', (e) => this.click(e));
     root.addEventListener('submit', (e) => this.submit(e));
     root.addEventListener('input', (e) => { if (e.target.id === 'bdq') { this.q = e.target.value; this.renderCols(); } });
@@ -20,7 +21,7 @@ export class BoardView {
 
   render() {
     if (!this.root.querySelector('.bd-cols')) {
-      this.root.innerHTML = `<div class="bd-head"><h3>Görevler</h3><input id="bdq" type="search" placeholder="ara…" value="${esc(this.q)}"><button class="btn" data-import title="GitHub issue'larından ya da yapıştırdığın listeden görev ekle">⬇ İçe aktar</button><button class="btn primary" data-new>＋ Görev</button></div>
+      this.root.innerHTML = `<div class="bd-head"><h3>Görevler</h3><input id="bdq" type="search" placeholder="ara…" value="${esc(this.q)}"><button class="btn" data-mode title="Pano / liste görünümü">${this.mode === 'list' ? '▦ Pano' : '☰ Liste'}</button><button class="btn" data-import title="GitHub issue'larından ya da yapıştırdığın listeden görev ekle">⬇ İçe aktar</button><button class="btn primary" data-new>＋ Görev</button></div>
         <div class="bd-cols"></div><aside class="bd-drawer hidden"></aside>`;
     }
     this.renderCols();
@@ -43,6 +44,17 @@ export class BoardView {
     const box = this.root.querySelector('.bd-cols');
     const q = this.q.trim().toLowerCase();
     const list = this.tasks.filter((t) => !q || `${t.id} ${t.title} ${t.details}`.toLowerCase().includes(q));
+    box.classList.toggle('as-list', this.mode === 'list');
+    if (this.mode === 'list') {
+      const order = { doing: 0, review: 1, todo: 2, backlog: 3, done: 4 };
+      const label = Object.fromEntries(COLS);
+      const rows = [...list].sort((a, b) => (order[a.status] - order[b.status]) || b.updated - a.updated);
+      box.innerHTML = `<div class="bd-table"><div class="bd-tr bd-th"><span>#</span><span>Görev</span><span>Durum</span><span>Atanan</span><span>Güncelleme</span></div>${rows.map((t) => {
+        const a = t.assignee ? this.workers.find((w) => w.id === t.assignee) : null;
+        return `<div class="bd-tr ${this.open === t.id ? 'sel' : ''}" data-task="${t.id}"><span class="tid">${t.id}</span><span class="bd-tt">${esc(t.title)}${t.parent ? ` <span class="muted">↳ ${t.parent}</span>` : ''}</span><span><em class="st st-${t.status}">${label[t.status]}</em></span><span>${a ? `<i class="dot" style="background:${a.color}"></i> ${esc(a.name)}` : '<span class="muted">—</span>'}</span><span class="muted">${ago(t.updated)}</span></div>`;
+      }).join('') || '<div class="bd-empty">görev yok</div>'}</div>`;
+      return;
+    }
     box.innerHTML = COLS.map(([st, label]) => {
       const items = list.filter((t) => t.status === st).sort((a, b) => b.updated - a.updated);
       return `<div class="bd-col" data-st="${st}"><div class="bd-col-head">${label}<span class="count">${items.length || ''}</span></div><div class="bd-col-body">${items.map((t) => this.card(t)).join('') || '<div class="bd-empty">—</div>'}</div></div>`;
@@ -103,8 +115,9 @@ export class BoardView {
   }
 
   async click(e) {
-    const el = e.target.closest('[data-new],[data-import],[data-close],[data-task],[data-open],[data-remove]');
+    const el = e.target.closest('[data-mode],[data-new],[data-import],[data-close],[data-task],[data-open],[data-remove]');
     if (!el) return;
+    if (el.dataset.mode !== undefined) { this.mode = this.mode === 'list' ? 'kanban' : 'list'; try { localStorage.setItem('ao.boardMode', this.mode); } catch { /* storage blocked */ } el.textContent = this.mode === 'list' ? '▦ Pano' : '☰ Liste'; this.renderCols(); return; }
     if (el.dataset.import !== undefined) { this.onImport?.(); return; }
     if (el.dataset.new !== undefined) { this.open = 'new'; this.render(); return; }
     if (el.dataset.close !== undefined) { this.open = null; this.render(); return; }

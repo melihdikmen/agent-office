@@ -17,6 +17,7 @@ const { Notifier } = require('./notify');
 const { ENGINES, findBin } = require('./engines');
 const worktree = require('./worktree');
 const { Stt } = require('./stt');
+const { Chat } = require('./chat');
 const { Decisions } = require('./decisions');
 const { Skills } = require('./skills');
 const speaker = require('./speak');
@@ -90,6 +91,7 @@ async function createWindow() {
       task_create: (c, a) => { const t = board.create(c.ws, { ...a, createdBy: c.worker.id }); return `${t.id} oluşturuldu (${t.status}${t.assignee ? `, ${board.who(c.ws, t.assignee)}` : ''})`; },
       task_update: (c, a) => { const t = board.update(c.ws, a.id, a, c.worker.id); return `${t.id}: ${t.status}${t.assignee ? ` · ${board.who(c.ws, t.assignee)}` : ''}`; },
       task_done: (c, a) => { const t = board.done(c.ws, a.id, a, c.worker.id); return `${t.id} kapatıldı. Rapor kaydedildi.`; },
+      skill_propose: (c, a) => { const p = skills.propose(c.worker, a); push(); return `Öneri sahibe iletildi (${p.name}). Onaylanırsa beceri merkezine eklenir.`; },
       ask_owner: (c, a) => { const d = decisionsRef.current.ask(c.ws, c.worker.id, a); return `${d.id} sahibe iletildi. Cevap terminaline "[Karar ${d.id}] …" olarak gelecek; o zamana kadar bu karara bağlı olmayan işe devam et.`; },
       web_read: (c, a) => webtoolRef.current.read(a.url),
       web_screenshot: async (c, a) => `Ekran görüntüsü: ${await webtoolRef.current.shot(a.url, a)}`,
@@ -126,13 +128,14 @@ async function createWindow() {
       active: ws ? {
         id: ws.id, name: ws.name, dir: ws.dir, lead: ws.lead, layout: ws.layout,
         workers: ws.workers.map((w) => workers.view(ws, w)),
-        tasks: ws.tasks, reports: ws.reports.slice(0, 100),
+        tasks: ws.tasks, reports: ws.reports.slice(0, 100), chat: (ws.chat || []).slice(-150),
       } : null,
       terminals: terminals.list(),
       guests,
       handsOff: !!store.data.handsOff,
       notify: notifier.view(),
       decisions: ws ? (ws.decisions || []).slice(0, 100) : [],
+      skillProposals: skills.proposals(),
       skills: skills.all().map((s) => ({ id: s.id, name: s.name, description: s.description, builtin: s.builtin, body: s.builtin ? undefined : s.body })),
       app: { version: app.getVersion(), lastSeen: store.data.lastSeenVersion || null, tourDone: !!store.data.tourDone, lang: store.data.lang || 'tr', changelog: changelog.slice(0, 12), updateFeed: store.data.updateFeed || '', update: store.data.updateResult || null },
       presets: { engines: Object.fromEntries(Object.entries(ENGINES).map(([k, e]) => [k, { label: e.label, models: e.models, hint: e.modelHint || '', installed: k === 'claude' || !!findBin(e.bin, envPath) }])), roles: ROLE_PRESETS, models: MODELS, permissionModes: PERMISSION_MODES, statuses: STATUSES },
@@ -160,11 +163,13 @@ async function createWindow() {
   board.on('assigned', ({ wsId, task, by, assignee }) => { const ws = store.workspace(wsId); if (ws) notifier.taskAssigned(ws, task, by, assignee); });
   const decisions = new Decisions(store, workers, notifier);
   decisionsRef.current = decisions;
+  const chat = new Chat(store, workers);
+  chat.on('change', push);
   workers.on('limit', ({ ws, worker, parked }) => notifier.limitHit(ws, worker, parked));
   workers.on('budget', ({ ws, worker, spent, budget, stopped }) => notifier.budgetHit(ws, worker, { spent, budget, stopped }));
   workers.on('limit-resume', ({ ws, worker }) => notifier.limitResumed(ws, worker));
   decisions.on('change', push);
-  board.on('message', (m) => send('ev:message', m));
+  board.on('message', (m) => { send('ev:message', m); const ws = store.workspace(m.wsId); if (ws) chat.fromAgent(ws, m.from, m.to === 'user' ? 'sahip' : m.to, m.text); });
   terminals.on('data', (p) => send('ev:pty-data', p));
   terminals.on('exit', (p) => { send('ev:pty-exit', p); push(); });
   terminals.on('change', push);
@@ -213,7 +218,7 @@ async function createWindow() {
       workers.flush(ws);
     }
     if (tray) { const w0 = activeWs(); tray.update(w0 ? w0.workers.map((w) => workers.view(w0, w)) : [], w0 ? (w0.decisions || []).filter((d) => d.status === 'open').length : 0, !!store.data.handsOff); }
-    for (const o of store.workspaces) { const vs = o.workers.map((w) => workers.view(o, w)); notifier.tick(o, vs); workers.limitTick(o, vs); workers.budgetTick(o, vs); }   // every project, not only the open one
+    for (const o of store.workspaces) { const vs = o.workers.map((w) => workers.view(o, w)); notifier.tick(o, vs); workers.limitTick(o, vs); workers.budgetTick(o, vs); chat.tick(o, vs); try { decisionsRef.current?.tick(o); } catch { /* answer failed; retried next tick */ } }   // every project, not only the open one
     push();
     setTimeout(loop, win && !win.isDestroyed() && win.isVisible() && !win.isMinimized() ? 2000 : 8000);
   };
@@ -244,6 +249,7 @@ async function createWindow() {
   H('worker-remove', ({ id }) => { workers.remove(need(), id); return true; });
   H('worker-start', ({ id, cols, rows }) => workers.start(need(), id, { cols, rows }));
   H('worker-stop', ({ id }) => workers.stop(need(), id));
+  H('chat-send', ({ text }) => { try { return { to: chat.ownerSend(need(), text) }; } catch (e) { return { error: e.message }; } });
   H('worker-send', ({ id, text }) => workers.send(need(), id, text));
   H('worker-memory', ({ id }) => { const ws = need(); const w = ws.workers.find((x) => x.id === id); return w ? memory.read(ws, w) : ''; });
 
@@ -354,6 +360,15 @@ async function createWindow() {
     pw.on('closed', () => popouts.delete(id));
     return true;
   });
+  H('skill-proposal-accept', ({ id }) => { const r = skills.acceptProposal(id); push(); return r; });
+  H('skill-proposal-dismiss', ({ id }) => { skills.dismissProposal(id); push(); return true; });
+  H('skill-suggest-ask', ({ id }) => {
+    const ws = need(); const w = ws.workers.find((x) => x.id === (id || ws.lead)) || ws.workers[0];
+    if (!w) throw new Error('Ofiste çalışan yok.');
+    if (!workers.running(w.id)) workers.start(ws, w.id);
+    workers.send(ws, w.id, '[Sahip] Hafızana (memory_search) ve yakın zamanda yaptığın işlere bak: tekrar eden, genelleştirilebilir çalışma biçimleri var mı? Varsa her biri için skill_propose çağır (en fazla 3, somut ve kısa). Yoksa "öneri yok" de.');
+    return { name: w.name };
+  });
   H('skill-get', ({ id }) => skills.find(id)?.body || '');
   H('skill-save', (p) => { const id = skills.save(p); push(); return id; });
   H('skill-delete', ({ id }) => { skills.remove(id); push(); return true; });
@@ -363,6 +378,39 @@ async function createWindow() {
   H('stt-transcribe', async ({ wav, lang }) => ({ text: await stt.transcribe(Buffer.from(wav), { lang: lang === 'en' ? 'en' : 'tr' }) }));
   H('mic-access', async () => (process.platform === 'darwin' && !process.env.AO_MIC_SKIP ? systemPreferences.askForMediaAccess('microphone') : true));
   const wtOf = (id) => { const ws = need(); const w = ws.workers.find((x) => x.id === id); if (!w) throw new Error('Çalışan yok'); return { ws, w }; };
+  H('annot-send', ({ id, png, url, width, height, notes }) => {
+    const { ws, w } = wtOf(id);
+    const dir = path.join(app.getPath('userData'), 'annotations');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${Date.now()}.png`);
+    fs.writeFileSync(file, Buffer.from(String(png), 'base64'));
+    for (const old of fs.readdirSync(dir).sort().slice(0, -40)) { try { fs.unlinkSync(path.join(dir, old)); } catch { /* best effort */ } }
+    const lines = (notes || []).slice(0, 20).map((n) => `${n.n}) (${n.x},${n.y})${n.target ? ` ${n.target}` : ''} — ${String(n.text).slice(0, 400)}`);
+    const text = `[İşaretli ekran · Sahip] Sayfa: ${url} (${width}×${height})\nGörüntü (numaralı kırmızı noktalar): ${file}\n${lines.join('\n')}\n(Görüntüyü Read ile aç, notları sırayla uygula; bitince kısaca haber ver.)`;
+    if (!workers.running(w.id)) workers.start(ws, w.id);
+    workers.send(ws, w.id, text);
+    return { file };
+  });
+  H('review-list', () => {
+    const ws = activeWs(); if (!ws) return [];
+    return ws.workers.filter((w) => w.worktree && w.worktreePath).map((w) => {
+      const st = worktree.status(ws, w);
+      return { id: w.id, name: w.name, role: w.role, color: w.color, status: st, files: st.exists ? worktree.files(ws, w) : [], comments: (w.reviewNotes || []).slice(-60) };
+    });
+  });
+  H('review-diff', ({ id, file }) => { const { ws, w } = wtOf(id); return worktree.diff(ws, w, file); });
+  H('review-comment', ({ id, file, line, text }) => {
+    const { ws, w } = wtOf(id);
+    const t = String(text || '').trim().slice(0, 1500);
+    if (!t) throw new Error('Yorum boş olamaz.');
+    (w.reviewNotes ||= []).push({ file, line: Number(line) || 0, text: t, ts: Date.now() });
+    if (w.reviewNotes.length > 200) w.reviewNotes.splice(0, w.reviewNotes.length - 200);
+    store.save();
+    if (!workers.running(w.id)) workers.start(ws, w.id);
+    workers.send(ws, w.id, `[İnceleme · Sahip] ${file}${line ? `:${line}` : ''} — ${t}\n(Düzeltip commit'le; bittiğinde kısaca haber ver.)`);
+    push();
+    return true;
+  });
   H('worktree-status', ({ id }) => { const { ws, w } = wtOf(id); return worktree.status(ws, w); });
   H('worktree-commit', ({ id, message }) => { const { w } = wtOf(id); const r = worktree.commit(w, message); push(); return r; });
   H('worktree-merge', ({ id }) => { const { ws, w } = wtOf(id); const r = worktree.merge(ws, w); push(); return r; });

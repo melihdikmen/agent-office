@@ -6,7 +6,7 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const git = (cwd, args, opts = {}) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, ...opts }).trim();
+const git = (cwd, args, opts = {}) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, maxBuffer: 16 * 1024 * 1024, ...opts }).trim();
 const tryGit = (cwd, args) => { try { return { ok: true, out: git(cwd, args) }; } catch (e) { return { ok: false, out: String(e.stderr || e.stdout || e.message).trim() }; } };
 const slug = (s) => String(s || 'agent').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'agent';
 
@@ -89,4 +89,24 @@ function remove(ws, w, { deleteBranch = false } = {}) {
   return true;
 }
 
-module.exports = { isRepo, ensure, status, commit, merge, remove, branchOf, slug };
+// Review data: per-file add/delete counts and one file's unified diff (branch vs its base).
+function files(ws, w) {
+  const dir = w.worktreePath;
+  if (!dir || !fs.existsSync(dir)) return [];
+  const base = w.worktreeBase || currentBranch(ws.dir);
+  const out = tryGit(dir, ['diff', '--numstat', `${base}...HEAD`]).out;
+  const st = Object.fromEntries(tryGit(dir, ['diff', '--name-status', `${base}...HEAD`]).out.split('\n').filter(Boolean).map((l) => { const [k, ...f] = l.split('\t'); return [f[f.length - 1], k[0]]; }));
+  return out.split('\n').filter(Boolean).map((l) => { const [a, d, ...f] = l.split('\t'); const file = f.join('\t'); return { file, add: a === '-' ? 0 : Number(a), del: d === '-' ? 0 : Number(d), binary: a === '-', kind: st[file] || 'M' }; });
+}
+
+function diff(ws, w, file) {
+  const dir = w.worktreePath;
+  if (!dir || !fs.existsSync(dir)) throw new Error('Worktree yok.');
+  const base = w.worktreeBase || currentBranch(ws.dir);
+  if (file && (file.startsWith('-') || file.includes('..'))) throw new Error('Geçersiz dosya.');
+  const r = tryGit(dir, ['diff', '--no-color', '-U4', `${base}...HEAD`, '--', ...(file ? [file] : [])]);
+  if (!r.ok) throw new Error(r.out.split('\n').pop());
+  return r.out.length > 300000 ? `${r.out.slice(0, 300000)}\n… (diff kısaltıldı)` : r.out;
+}
+
+module.exports = { files, diff, isRepo, ensure, status, commit, merge, remove, branchOf, slug };

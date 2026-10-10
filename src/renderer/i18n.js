@@ -2,7 +2,7 @@
 // DOM text is translated by exact match (and a few patterns), so views stay untouched.
 // New components use tt('Türkçe', 'English') directly.
 const PAIRS = [
-  ['Ofis', 'Office'], ['Kod', 'Code'], ['Terminal', 'Terminal'], ['Görevler', 'Tasks'], ['Raporlar', 'Reports'], ['Hafıza', 'Memory'], ['Tarayıcı', 'Browser'], ['Hub', 'Hub'],
+  ['Ofis', 'Office'], ['Sohbet', 'Chat'], ['İnceleme', 'Review'], ['Takım sohbeti', 'Team chat'], ['Kod', 'Code'], ['Terminal', 'Terminal'], ['Görevler', 'Tasks'], ['Raporlar', 'Reports'], ['Hafıza', 'Memory'], ['Tarayıcı', 'Browser'], ['Hub', 'Hub'],
   ['＋ Takım', '＋ Team'], ['＋ Çalışan', '＋ Worker'], ['⚙ Yönet', '⚙ Manage'], ['EDIT', 'EDIT'], ['▮ Terminal', '▮ Terminal'], ['◫ 3B Ofis', '◫ 3D Office'],
   ['Ofis kur', 'Set up an office'], ['📁 Proje klasörü seç', '📁 Choose project folder'], ['OFİS YOK', 'NO OFFICE'], ['UYUYOR', 'ASLEEP'], ['Ofis · Kod', 'Office · Code'],
   ['Bir proje klasörü seç; çalışanlar o klasörde, kendi terminallerinde çalışır.', 'Pick a project folder; workers run in it, each in its own terminal.'],

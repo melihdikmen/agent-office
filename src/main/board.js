@@ -144,11 +144,12 @@ class Board extends EventEmitter {
   }
 
   message(ws, fromId, to, text) {
+    if (/^(sahip|owner|user|patron)$/i.test(String(to).trim())) { this.emit('message', { wsId: ws.id, from: fromId, to: 'user', text: String(text).trim().slice(0, 2000), ts: Date.now() }); return 'Sahibe iletildi.'; }
     const target = this.workers.resolve(ws, to);
     if (!target) throw new Error(`Çalışan bulunamadı: ${to}`);
     if (!this.workers.running(target.id) && !this.workers.start(ws, target.id)) throw new Error(`${target.name} başlatılamadı.`);
     this.workers.send(ws, target.id, `[Mesaj · ${this.who(ws, fromId)}] ${String(text).trim()}`);
-    this.emit('message', { wsId: ws.id, from: fromId, to: target.id, text: String(text).trim().slice(0, 300), ts: Date.now() });
+    this.emit('message', { wsId: ws.id, from: fromId, to: target.id, text: String(text).trim().slice(0, 2000), ts: Date.now() });
     return `${target.name} aldı.`;
   }
 

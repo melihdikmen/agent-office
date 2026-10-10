@@ -13,7 +13,7 @@ class Decisions extends EventEmitter {
   list(ws) { return (ws.decisions ||= []); }
   open(ws, workerId) { return this.list(ws).filter((d) => d.status === 'open' && (!workerId || d.by === workerId)); }
 
-  ask(ws, workerId, { question, options = [], details = '', task = '' }) {
+  ask(ws, workerId, { question, options = [], details = '', task = '', recommended = '', auto_min = 0 }) {
     const { redact } = require('./redact');
     const q = redact(clip(question, 400));
     if (!q) throw new Error('Soru boş olamaz.');
@@ -22,12 +22,21 @@ class Decisions extends EventEmitter {
       id: `K-${ws.decisionSeq}`, by: workerId, question: q, details: redact(clip(details, 1500)), task: clip(task, 40),
       options: options.map((o) => clip(o, 120)).filter(Boolean).slice(0, 5), status: 'open', answer: null, ts: Date.now(), answeredTs: null,
     };
+    const rec = clip(recommended, 120).toLowerCase();
+    d.recommended = d.options.find((o) => o.toLowerCase() === rec) || (Number.isInteger(+recommended) && +recommended >= 1 ? d.options[+recommended - 1] : '') || '';
+    const mins = Math.min(240, Math.max(0, Number(auto_min) || 0));
+    d.autoAt = d.recommended && mins ? d.ts + mins * 60000 : null;
     this.list(ws).unshift(d);
     if (ws.decisions.length > 200) ws.decisions.length = 200;
     this.store.save();
     this.emit('change', ws.id);
     this.notifier?.decisionAsked(ws, d, ws.workers.find((w) => w.id === workerId)?.name || 'Ajan');
     return d;
+  }
+
+  // Open decisions whose timer ran out take the worker's recommended option.
+  tick(ws, now = Date.now()) {
+    for (const d of this.open(ws)) if (d.autoAt && d.autoAt <= now) this.answer(ws, d.id, `${d.recommended} (süre doldu, önerilen seçenek otomatik uygulandı)`);
   }
 
   answer(ws, id, answer) {
