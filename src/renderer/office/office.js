@@ -394,6 +394,17 @@ export class Office {
     this.setWorkers(this.workers);
   }
 
+  // One-click looks: every room gets a floor from the theme (rooms beyond the list repeat it).
+  applyTheme(name) {
+    const T = { sicak: ['wood', 'carpet', 'sand', 'wood', 'sand'], serin: ['checker', 'tile', 'dark', 'tile', 'checker'], koyu: ['dark', 'dark', 'dark', 'dark', 'dark'], pastel: ['lavender', 'sand', 'lavender', 'tile', 'carpet'], varsayilan: ['checker', 'wood', 'carpet', 'sand', 'tile'] };
+    const floors = T[name];
+    if (!floors) return false;
+    this.layout.rooms.forEach((r, i) => { r.floor = floors[i % floors.length]; });
+    this.onLayout?.(this.layout);
+    if (this.r3) this.r3.dirty = true;
+    return true;
+  }
+
   cycleFloor(roomId) {
     const names = ['checker', 'wood', 'tile', 'dark', 'carpet', 'sand', 'lavender'];
     const r = this.layout.rooms.find((x) => x.id === roomId);

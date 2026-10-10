@@ -6,8 +6,8 @@ const ago = (ts) => { const m = Math.max(0, Math.round((Date.now() - ts) / 60000
 const time = (ts) => new Date(ts).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 
 export class BoardView {
-  constructor(root, api, { onSelectWorker }) {
-    this.root = root; this.api = api; this.onSelectWorker = onSelectWorker;
+  constructor(root, api, { onSelectWorker, onImport }) {
+    this.root = root; this.api = api; this.onSelectWorker = onSelectWorker; this.onImport = onImport;
     this.tasks = []; this.workers = []; this.open = null; this.q = '';
     root.addEventListener('click', (e) => this.click(e));
     root.addEventListener('submit', (e) => this.submit(e));
@@ -20,7 +20,7 @@ export class BoardView {
 
   render() {
     if (!this.root.querySelector('.bd-cols')) {
-      this.root.innerHTML = `<div class="bd-head"><h3>Görevler</h3><input id="bdq" type="search" placeholder="ara…" value="${esc(this.q)}"><button class="btn primary" data-new>＋ Görev</button></div>
+      this.root.innerHTML = `<div class="bd-head"><h3>Görevler</h3><input id="bdq" type="search" placeholder="ara…" value="${esc(this.q)}"><button class="btn" data-import title="GitHub issue'larından ya da yapıştırdığın listeden görev ekle">⬇ İçe aktar</button><button class="btn primary" data-new>＋ Görev</button></div>
         <div class="bd-cols"></div><aside class="bd-drawer hidden"></aside>`;
     }
     this.renderCols();
@@ -103,8 +103,9 @@ export class BoardView {
   }
 
   async click(e) {
-    const el = e.target.closest('[data-new],[data-close],[data-task],[data-open],[data-remove]');
+    const el = e.target.closest('[data-new],[data-import],[data-close],[data-task],[data-open],[data-remove]');
     if (!el) return;
+    if (el.dataset.import !== undefined) { this.onImport?.(); return; }
     if (el.dataset.new !== undefined) { this.open = 'new'; this.render(); return; }
     if (el.dataset.close !== undefined) { this.open = null; this.render(); return; }
     if (el.dataset.open) { this.open = el.dataset.open; this.render(); return; }

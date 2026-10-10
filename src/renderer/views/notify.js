@@ -1,7 +1,7 @@
 // Notification centre: the bell with an unread count and a list of what happened
 // (project · agent · what), plus switches for which kinds to be told about.
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const ICON = { done: '✓', waiting: '?', finished: '●', assigned: '→' };
+const ICON = { done: '✓', waiting: '?', finished: '●', assigned: '→', decision: '⚑', limit: '⏳', budget: '$' };
 
 function ago(ts) {
   const s = Math.max(0, (Date.now() - ts) / 1000);
@@ -45,6 +45,7 @@ export class NotifyView {
         <label class="nt-opt"><input type="checkbox" data-pref="enabled" ${prefs.enabled ? 'checked' : ''}> Bildirimler açık</label>
         <label class="nt-opt"><input type="checkbox" data-pref="onlyUnfocused" ${prefs.onlyUnfocused ? 'checked' : ''}> Sistem bildirimi yalnızca uygulama arkadayken</label>
         <label class="nt-opt"><input type="checkbox" data-pref="sound" ${prefs.sound ? 'checked' : ''}> Ses</label>
+        <label class="nt-opt"><input type="checkbox" data-pref="speak" ${prefs.speak ? 'checked' : ''}> Önemli bildirimleri sesli oku</label>
         <div class="nt-sep"></div>${toggles}</div>` : '';
     this.panel.innerHTML = `<div class="nt-head"><b>Bildirimler</b><span class="spacer"></span>
         <button data-act="readall" title="Hepsini okundu yap">✓ okundu</button><button data-act="clear" title="Temizle">Temizle</button><button data-act="prefs" class="${this.showPrefs ? 'on' : ''}" title="Ayarlar">⚙</button></div>${prefsHtml}

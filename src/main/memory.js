@@ -14,6 +14,9 @@ function stamp(ts = Date.now()) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+const fold = (s) => String(s).toLowerCase().replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ö/g, 'o').replace(/ç/g, 'c').normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+const tokens = (s) => fold(s).split(/[^a-z0-9]+/).filter((w) => w.length > 1);
+
 class Memory {
   constructor(store) { this.store = store; }
 
@@ -32,7 +35,7 @@ class Memory {
   }
 
   note(ws, worker, text, tags = []) {
-    const clean = String(text || '').replace(/\s+/g, ' ').trim();
+    const clean = require('./redact').redact(String(text || '').replace(/\s+/g, ' ').trim());
     if (!clean) throw new Error('boş not');
     const tagStr = [...new Set(tags.map((t) => String(t).trim().toLowerCase().replace(/[\[\]]/g, '')).filter(Boolean))].map((t) => ` [[${t}]]`).join('');
     fs.appendFileSync(this.ensure(ws, worker), `- ${stamp()} — ${clean}${tagStr}\n`);
@@ -57,11 +60,29 @@ class Memory {
     return out;
   }
 
-  search(ws, query) {
-    const q = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  // Ranked search: accents and Turkish letters are folded ("sifre" finds "şifre"), word
+  // beginnings count ("dogrulama" finds "doğrulaması"), rarer words weigh more, tags and
+  // newer notes get a small boost. No exact-all-words requirement: best matches first.
+  search(ws, query, limit = 15) {
+    const q = tokens(query);
     if (!q.length) return [];
-    return this.notes(ws).filter((n) => { const hay = `${n.text} ${n.tags.join(' ')}`.toLowerCase(); return q.every((w) => hay.includes(w)); }).slice(-40)
-      .map((n) => `${n.name} (${n.ts}): ${n.text}${n.tags.length ? ` [${n.tags.join(', ')}]` : ''}`);
+    const notes = this.notes(ws);
+    if (!notes.length) return [];
+    const docs = notes.map((n) => ({ n, words: tokens(`${n.text} ${n.tags.join(' ')}`), tags: new Set(n.tags.map(fold)) }));
+    const hit = (w, t) => w === t || (t.length >= 4 && (w.startsWith(t) || (w.length >= 4 && t.startsWith(w.slice(0, Math.max(4, w.length - 2))))));
+    const df = q.map((t) => docs.filter((d) => d.words.some((w) => hit(w, t))).length);
+    const scored = docs.map((d, i) => {
+      let score = 0, matched = 0;
+      q.forEach((t, k) => {
+        if (!df[k]) return;
+        const tf = d.words.filter((w) => hit(w, t)).length;
+        if (!tf) return;
+        matched++;
+        score += (1 + Math.log(tf)) * Math.log(1 + docs.length / df[k]) + (d.tags.has(t) ? 1.5 : 0);
+      });
+      return { n: d.n, score: matched ? score * (0.6 + 0.4 * matched / q.length) + (i / docs.length) * 0.3 : 0 };
+    }).filter((x) => x.score > 0).sort((a, c) => c.score - a.score).slice(0, limit);
+    return scored.map(({ n }) => `${n.name} (${n.ts}): ${n.text}${n.tags.length ? ` [${n.tags.join(', ')}]` : ''}`);
   }
 
   // Nodes: every note and every tag; links: note → its tags. Enough for a map.

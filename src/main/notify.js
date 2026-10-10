@@ -8,8 +8,11 @@ const KINDS = {
   waiting: { label: 'Onay / yanıt bekliyor', icon: '?' },
   finished: { label: 'Çalışmayı bıraktı (boşta)', icon: '●' },
   assigned: { label: 'Yeni görev atandı', icon: '→' },
+  decision: { label: 'Karar istiyor', icon: '⚑' },
+  limit: { label: 'Kullanım limiti doldu / devam etti', icon: '⏳' },
+  budget: { label: 'Bütçe uyarısı / aşıldı', icon: '$' },
 };
-const DEFAULTS = { enabled: true, onlyUnfocused: true, sound: true, kinds: { done: true, waiting: true, finished: true, assigned: false } };
+const DEFAULTS = { enabled: true, onlyUnfocused: true, sound: true, speak: false, kinds: { done: true, waiting: true, finished: true, assigned: false, decision: true, limit: true, budget: true } };
 const MAX_HISTORY = 100;
 const MIN_WORK_SECS = 20;          // a "finished" notification needs at least this much work before it
 
@@ -26,7 +29,7 @@ const clip = (s, n) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return
 
 function prefsOf(raw) {
   const p = raw && typeof raw === 'object' ? raw : {};
-  return { enabled: p.enabled !== false, onlyUnfocused: p.onlyUnfocused !== false, sound: p.sound !== false, kinds: { ...DEFAULTS.kinds, ...(p.kinds || {}) } };
+  return { enabled: p.enabled !== false, onlyUnfocused: p.onlyUnfocused !== false, sound: p.sound !== false, speak: p.speak === true, kinds: { ...DEFAULTS.kinds, ...(p.kinds || {}) } };
 }
 
 // Should this event produce a system notification right now?
@@ -68,6 +71,40 @@ function describeFinished(ws, worker, task, secs) {
     title: `${ws.name} · ${worker.name}`,
     subtitle: 'Çalışmayı bıraktı',
     body: `${task ? `${task.id} · ${clip(task.title, 70)}\n` : ''}${m ? `${m} dk` : `${Math.round(secs)} sn`} çalıştı, şimdi boşta.`,
+    ref: { type: 'worker', id: worker.id },
+  };
+}
+
+function describeDecision(ws, d, who) {
+  return {
+    kind: 'decision', warn: true,
+    title: `${ws.name} · ${who}`,
+    subtitle: `Karar istiyor · ${d.id}`,
+    body: `${clip(d.question, 160)}${d.options.length ? `\nSeçenekler: ${d.options.join(' / ')}` : ''}`,
+    ref: { type: 'decision', id: d.id },
+  };
+}
+
+const clock = (ts) => new Date(ts).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+function describeLimit(ws, worker, parked) {
+  return {
+    kind: 'limit', warn: true,
+    title: `${ws.name} · ${worker.name}`,
+    subtitle: 'Kullanım limiti doldu',
+    body: `${clock(parked.until)} civarında kaldığı yerden devam ettirilecek${parked.guessed ? ' (saat bilinmiyor, tahmin)' : ''}.`,
+    ref: { type: 'worker', id: worker.id },
+  };
+}
+function describeResumed(ws, worker) {
+  return { kind: 'limit', warn: false, title: `${ws.name} · ${worker.name}`, subtitle: 'Limit sıfırlandı', body: 'Kaldığı yerden devam ettirildi.', ref: { type: 'worker', id: worker.id } };
+}
+
+function describeBudget(ws, worker, { spent, budget, stopped }) {
+  return {
+    kind: 'budget', warn: true,
+    title: `${ws.name} · ${worker.name}`,
+    subtitle: stopped ? 'Bütçe doldu, durduruldu' : 'Bütçenin %80\'i harcandı',
+    body: `$${spent.toFixed(2)} / $${budget.toFixed(2)}${stopped ? '. Bütçeyi yükseltip yeniden başlatabilirsin.' : '.'}`,
     ref: { type: 'worker', id: worker.id },
   };
 }
@@ -119,6 +156,7 @@ class Notifier {
     if (this.history.length > MAX_HISTORY) this.history.length = MAX_HISTORY;
     this.env.store.save();
     this.env.send('ev:notify', n);
+    if (this.prefs.speak && this.env.speak) this.env.speak(n);
     this.badge();
     const win = this.env.win();
     const focused = !!win && !win.isDestroyed() && win.isFocused();
@@ -135,6 +173,10 @@ class Notifier {
   }
 
   taskDone(ws, task, who) { return this.push(ws, describeDone(ws, task, who)); }
+  budgetHit(ws, worker, info) { return this.push(ws, describeBudget(ws, worker, info)); }
+  limitHit(ws, worker, parked) { return this.push(ws, describeLimit(ws, worker, parked)); }
+  limitResumed(ws, worker) { return this.push(ws, describeResumed(ws, worker)); }
+  decisionAsked(ws, d, who) { return this.push(ws, describeDecision(ws, d, who)); }
   taskAssigned(ws, task, who, assignee) { return this.push(ws, describeAssigned(ws, task, who, assignee)); }
 
   // Called every status tick with the views of one workspace: detects waiting / stopped-working edges.
@@ -154,4 +196,4 @@ class Notifier {
   }
 }
 
-module.exports = { osaNotify, Notifier, KINDS, DEFAULTS, prefsOf, shouldPopup, describeDone, describeWaiting, describeFinished, describeAssigned };
+module.exports = { describeBudget, describeLimit, describeResumed, osaNotify, Notifier, KINDS, DEFAULTS, prefsOf, shouldPopup, describeDone, describeWaiting, describeFinished, describeAssigned };

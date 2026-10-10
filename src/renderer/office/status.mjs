@@ -14,6 +14,8 @@ export const sinceSecs = (v, now = Date.now()) => (v.statusSince ? Math.max(0, (
 // Priority: manual c.bubble > waiting > offline > starting > working hint.
 export function bubbleFor(c, v, t, colors, now = Date.now()) {
   if (c.bubble?.text) return { text: c.bubble.text, bg: colors.paper, fg: colors.ink };
+  if (v.parkedUntil) return { text: `⏳ ${new Date(v.parkedUntil).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`, bg: colors.purple, fg: colors.ink, bold: true, pulse: 0.5 };
+  if (v.decisionOpen) return { text: '⚑ Karar', bg: colors.yellow, fg: colors.ink, bold: true, bounce: 3, pulse: 1 };
   if (v.status === 'waiting') {
     const urgent = sinceSecs(v, now) >= 60;
     const pulse = urgent ? 2.2 : 1;

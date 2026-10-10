@@ -42,6 +42,14 @@ const PAIRS = [
   ['Ofis kurulumu', 'Office setup'], ['Çalışanların çalışacağı klasör', 'Folder the workers will work in'], ['İletildi', 'Delivered'], ['Anahtar kaydedildi ve entegrasyon açıldı.', 'Key saved and integration enabled.'],
   ['● bağlı · yeni başlayan çalışanlara verilir', '● connected · given to workers that start'], ['(kurulu değil)', '(not installed)'], ['kayıtlı', 'saved'],
   ['Yazılım ekibi', 'Software team'], ['Araştırma ekibi', 'Research team'], ['Ürün ekibi', 'Product team'],
+  ['Kullanım limiti doldu / devam etti', 'Usage limit hit / resumed'], ['Kullanım limiti doldu', 'Usage limit reached'], ['Limit sıfırlandı', 'Limit reset'],
+  ['Bütçe uyarısı / aşıldı', 'Budget warning / exceeded'], ['Bütçe (USD, her başlatmada; boş = sınırsız)', 'Budget (USD per start; empty = unlimited)'], ['Bütçe doldu, durduruldu', 'Budget reached, stopped'],
+  ['Beceriler', 'Skills'],
+  ['Önemli bildirimleri sesli oku', 'Read important notifications aloud'],
+  ['⬇ İçe aktar', '⬇ Import'], ['PR aç', 'Open PR'], ['Liste yapıştır', 'Paste a list'],
+  ['Ayrı pencereye çıkar', 'Open in its own window'],
+  ['🎲 Görünümü değiştir', '🎲 Change look'], ['🎨 Tema', '🎨 Theme'],
+  ['Kararlar', 'Decisions'], ['Karar istiyor', 'Wants a decision'], ['⚑ Karar', '⚑ Decision'],
   ['Hakkında, yenilikler, güncelleme', 'About, what\'s new, updates'], ['Yenilikler', 'What\'s new'],
 ];
 const DICT = new Map(PAIRS);

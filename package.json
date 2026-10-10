@@ -1,13 +1,13 @@
 {
   "name": "agent-office",
   "productName": "Agent Office",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "A live 3D office showing every AI agent running on your machine, with teams you can build from them",
   "main": "src/main/main.js",
   "author": "Melih Dikmen",
   "license": "MIT",
   "scripts": {
-    "build": "esbuild src/renderer/main.js --bundle --format=iife --target=chrome130 --outfile=out/renderer.js --log-level=warning",
+    "build": "esbuild src/renderer/main.js --bundle --format=iife --target=chrome130 --outfile=out/renderer.js --log-level=warning && esbuild src/renderer/popout.js --bundle --format=iife --target=chrome130 --outfile=out/popout.js --log-level=warning",
     "start": "npm run build && electron .",
     "check": "for f in src/main/*.js; do node --check $f || exit 1; done && npm run build && node --test \"test/*.test.js\"",
     "shot": "npm run build && electron scripts/shot.js",

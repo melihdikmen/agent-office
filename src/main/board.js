@@ -82,8 +82,9 @@ class Board extends EventEmitter {
     if (by !== 'user' && !evidence.length) throw new Error('Kanıt olmadan kapatılamaz: evidence listesine en az bir doğrulama ekle.');
     task.status = 'done';
     task.updated = Date.now();
-    task.report = { by, ts: Date.now(), summary: String(summary || '').trim(), evidence: evidence.slice(0, 30), files: files.slice(0, 200) };
-    ws.reports.unshift({ id: `${task.id}@${task.report.ts}`, taskId: task.id, title: task.title, ...task.report });
+    const { redact } = require('./redact');
+    task.report = { by, ts: Date.now(), summary: redact(String(summary || '').trim()), evidence: evidence.slice(0, 30).map((e) => ({ ...e, label: redact(e.label), detail: e.detail ? redact(e.detail) : e.detail })), files: files.slice(0, 200) };
+    ws.reports.unshift({ id: `${task.id}@${task.report.ts}`, taskId: task.id, title: task.title, ...task.report, review: by === 'user' ? { status: 'approved', ts: Date.now() } : { status: 'pending', ts: null }, comments: [] });
     if (ws.reports.length > 500) ws.reports.length = 500;
     this.store.save();
     this.emit('change', ws.id);
@@ -98,6 +99,42 @@ class Board extends EventEmitter {
       this.workers.send(ws, wid, `[Pano] ${task.id} "${task.title}" tamamlandı (${this.who(ws, by)}): ${task.report.summary}${failed ? `\nDikkat: ${failed} doğrulama başarısız.` : ''}`);
     }
     return task;
+  }
+
+  // The owner reviews a closed task's report: comment on a part of it, approve it, or ask for changes.
+  // Comments and change requests are typed into the terminal of whoever wrote the report.
+  reviewReport(ws, reportId, { action, text = '', anchor = null }) {
+    const r = ws.reports.find((x) => x.id === reportId);
+    if (!r) throw new Error('Rapor bulunamadı.');
+    const t = String(text || '').trim().slice(0, 2000);
+    const task = this.task(ws, r.taskId);
+    const target = ws.workers.find((w) => w.id === r.by) || ws.workers.find((w) => w.id === task?.assignee) || ws.workers.find((w) => w.id === ws.lead);
+    const send = (msg) => {
+      if (!target) return;
+      if (!this.workers.running(target.id)) this.workers.start(ws, target.id);
+      this.workers.send(ws, target.id, msg);
+    };
+    const label = anchor ? ` · ${anchor.type === 'evidence' ? `kanıt: ${anchor.label || anchor.ref}` : anchor.type === 'file' ? `dosya: ${anchor.ref}` : 'özet'}` : '';
+    r.comments ||= [];
+    r.review ||= { status: 'pending', ts: null };
+    if (action === 'comment') {
+      if (!t) throw new Error('Yorum boş olamaz.');
+      r.comments.push({ id: `c${Date.now().toString(36)}`, by: 'user', ts: Date.now(), text: t, anchor });
+      send(`[Rapor ${r.taskId} · yorum${label}] ${t}`);
+    } else if (action === 'approve') {
+      r.review = { status: 'approved', ts: Date.now() };
+      if (t) r.comments.push({ id: `c${Date.now().toString(36)}`, by: 'user', ts: Date.now(), text: t, anchor: null });
+      send(`[Rapor ${r.taskId}] Sahip onayladı ✓${t ? ` — ${t}` : ''}`);
+    } else if (action === 'changes') {
+      if (!t) throw new Error('Ne değişmeli? Kısa bir açıklama yaz.');
+      r.review = { status: 'changes', ts: Date.now() };
+      r.comments.push({ id: `c${Date.now().toString(36)}`, by: 'user', ts: Date.now(), text: t, anchor });
+      if (task) { task.status = 'doing'; task.updated = Date.now(); task.notes.push({ by: 'user', ts: Date.now(), text: `Rapor için değişiklik istendi: ${t}` }); }
+      send(`[Rapor ${r.taskId}] Sahip değişiklik istedi${label}: ${t}\nDüzeltip ${r.taskId} için task_done ile yeniden kapat.`);
+    } else throw new Error(`Bilinmeyen işlem: ${action}`);
+    this.store.save();
+    this.emit('change', ws.id);
+    return r;
   }
 
   remove(ws, id) {

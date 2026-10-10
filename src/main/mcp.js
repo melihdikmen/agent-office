@@ -25,6 +25,12 @@ const MCP_TOOLS = (z) => ({
   },
   message: { description: 'Bir takım arkadaşına mesaj gönderir (adıyla). Yalnızca bilgi gerekince ya da o kişi bir şey yapmalıysa.', input: { to: z.string(), text: z.string().min(1) } },
   memory_note: { description: 'Kendi hafızana kalıcı bir not ekler: karar, tercih, öğrenilen şey. tags ile bağlantı kur (ör. ["auth","db"]).', input: { text: z.string().min(1), tags: z.array(z.string()).default([]) } },
+  web_read: { description: 'Bir web sayfasını tarayıcıda (JavaScript dahil) açıp başlığını, metnini ve bağlantılarını döndürür. Yerel geliştirme sunucuları (localhost) dahil. Yalnızca okur.', input: { url: z.string().url() } },
+  web_screenshot: { description: 'Bir sayfanın ekran görüntüsünü PNG olarak kaydeder ve dosya yolunu döndürür (Read aracıyla görüntüyü incele). Kendi geliştirdiğin arayüzü doğrulamak için de kullan.', input: { url: z.string().url(), width: z.number().int().min(320).max(2000).optional(), height: z.number().int().min(240).max(3000).optional() } },
+  ask_owner: {
+    description: 'Sahibe seçenekli bir karar sorusu sorar (ör. iki yaklaşım arasında kalınca). Beklemez: soru sahibe iletilir, sen bağımsız işe devam et; cevap terminaline "[Karar K-n] …" olarak gelir. Küçük/geri alınabilir şeyler için sorma, kendin karar ver.',
+    input: { question: z.string().min(1), options: z.array(z.string()).max(5).default([]), details: z.string().optional(), task: z.string().optional() },
+  },
   memory_search: { description: 'Takımın hafızasında arar (kendi notların + takım arkadaşlarınınki).', input: { query: z.string().min(1) } },
 });
 

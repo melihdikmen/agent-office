@@ -35,10 +35,10 @@ function popupMenu(x, y, title, items) {
 }
 
 export class Panes {
-  constructor(root, api, { onFocus, onClose, onMove, onMic }) {
+  constructor(root, api, { onFocus, onClose, onMove, onMic, onPopout }) {
     this.root = root;
     this.api = api;
-    this.onFocus = onFocus; this.onClose = onClose; this.onMove = onMove; this.onMic = onMic;
+    this.onFocus = onFocus; this.onClose = onClose; this.onMove = onMove; this.onMic = onMic; this.onPopout = onPopout;
     // Tab groups: each group is its own split layout { leaf: termId } | { dir: 'row'|'col', ratio, a, b };
     // terminals of hidden groups stay alive, only the active group is on screen.
     this.groups = [{ id: 'g1', name: 'Terminal', tree: null, focused: null, maximized: null }];
@@ -420,6 +420,7 @@ export class Panes {
     if (this.onMove) items.push(['Diğer alana taşı (ofis alanı ⇄ sağ panel)', () => this.onMove(id, this)]);
     this.groups.forEach((g, i) => { if (i !== gi) items.push([`Gruba taşı: ${g.name}`, () => this.moveToGroup(id, i)]); });
     items.push(['Yeni gruba taşı', () => { this.addGroup(); this.moveToGroup(id, this.groups.length - 1); }], 'sep');
+    if (this.onPopout) items.push(['Ayrı pencereye çıkar', () => this.onPopout(id, this)]);
     items.push(['Çıktıyı kopyala', () => { t.term.selectAll(); const text = t.term.getSelection(); t.term.clearSelection(); navigator.clipboard?.writeText(text); }]);
     items.push(['Ekranı temizle', () => t.term.clear()]);
     if (w?.running) items.push(['Çalışanı durdur (uyut)', () => this.api.workerStop({ id: w.id })]);
@@ -438,7 +439,7 @@ export class Panes {
     const w = m.workerId ? this.workersById.get(m.workerId) : null;
     const dot = m.exited != null ? '#6b625b' : w ? ({ working: '#6ea8ff', waiting: '#f2c94c', idle: '#7ad7a0' }[w.status] || '#7ad7a0') : '#7ad7a0';
     const other = w && w.engine && w.engine !== 'claude';
-    const chips = w ? `<span class="chip">${esc(other ? `${w.engine}${w.model ? ` · ${w.model}` : ''}` : w.model)}</span>${w.branch ? `<span class="chip">⎇ ${esc(w.branch)}</span>` : ''}${other ? '' : `<span class="chip usage" title="Bu oturumun toplam maliyeti ve token kullanımı">$${(w.cost || 0).toFixed(2)} · ${Math.round((w.tokens || 0) / 1000)}k tok</span>`}` : '';
+    const chips = w ? `<span class="chip">${esc(other ? `${w.engine}${w.model ? ` · ${w.model}` : ''}` : w.model)}</span>${w.branch ? `<span class="chip">⎇ ${esc(w.branch)}</span>` : ''}${other ? '' : `<span class="chip usage" title="Bu oturumun toplam maliyeti ve token kullanımı">$${(w.cost || 0).toFixed(2)}${w.budget > 0 ? ` / $${w.budget}` : ''} · ${Math.round((w.tokens || 0) / 1000)}k tok</span>`}` : '';
     return `<i class="dot" style="background:${dot}"></i><b>${esc(m.title || id)}</b>${w ? `<span class="muted">${esc(w.role)}</span>` : ''}<span class="spacer"></span>${chips}
       <button data-act="row" title="Yana böl">◫</button><button data-act="col" title="Alta böl">⬓</button><button data-act="clear" title="Temizle">⌫</button>${this.onMic ? '<button data-act="mic" title="Konuşarak yaz (⌘⇧M)">🎤</button>' : ''}<button data-act="max" title="Büyüt/küçült">⤢</button><button data-act="full" title="Tüm pencereyi kapla (⌘⇧↵ ya da başlığa çift tıkla)">⛶</button>${this.onMove ? '<button data-act="move" title="Terminali diğer alana taşı (ofis alanı ⇄ sağ panel)">⇄</button>' : ''}<button data-act="close" title="Kapat">✕</button>`;
   }

@@ -8,7 +8,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { id } = require('./store');
-const { ENGINES, findBin, launch, Activity } = require('./engines');
+const { ENGINES, findBin, launch, Activity, stripAnsi } = require('./engines');
+const limits = require('./limits');
 const worktree = require('./worktree');
 
 const MODELS = ['haiku', 'sonnet', 'opus', 'fable'];
@@ -30,7 +31,7 @@ const ROLE_PRESETS = [
   { role: 'DevOps', duties: 'Build, CI/CD, ortam ayarları, bağımlılık güncellemeleri, yayın.' },
 ];
 
-function briefing(ws, worker, memoryFile) {
+function briefing(ws, worker, memoryFile, extra = []) {
   const mates = ws.workers.filter((w) => w.id !== worker.id);
   const lead = ws.workers.find((w) => w.id === ws.lead);
   const isLead = lead && lead.id === worker.id;
@@ -58,6 +59,7 @@ function briefing(ws, worker, memoryFile) {
     '',
     '## Memory',
     `- Your memory file: ${memoryFile}. Read it when a task starts. It is yours alone; teammates have their own.`,
+    '- When you truly need the owner to choose (two real options, a risky or hard-to-undo step), call ask_owner with 2-4 options and a one-line question; it does not block: carry on with independent work and the answer arrives in your terminal as "[Karar K-n] …". Do not ask about small, reversible things.',
     '- Record decisions, preferences the owner stated, and things you learned with memory_note (short, concrete, with tags). Search the team memory with memory_search before asking a teammate something that was probably decided already.',
     '',
     '## Working rules',
@@ -67,7 +69,7 @@ function briefing(ws, worker, memoryFile) {
     '- Do not touch files outside your part without telling the owner of that file (the board shows who does what).',
     '- When a "[Mesaj · name]" line arrives, it is from that teammate; "[Pano]" lines come from the board; anything else the owner typed.',
   ];
-  return lines.filter((l) => l !== null).join('\n').replace(/\n{3,}/g, '\n\n');
+  return [...lines, ...extra].filter((l) => l !== null).join('\n').replace(/\n{3,}/g, '\n\n');
 }
 
 class Workers extends EventEmitter {
@@ -79,7 +81,8 @@ class Workers extends EventEmitter {
     this.rt = runtime;                 // { claudeBin, mcp, scanner }
     this.outbox = new Map();           // workerId → texts waiting for Claude to be ready
     this.activity = new Activity();    // status of non-Claude engines, read from terminal output
-    terminals.on?.('data', ({ id: tid, data }) => { if (tid.startsWith('w:')) this.activity.data(tid, data); });
+    this.tails = new Map();            // terminal id → last output (plain text), for limit detection
+    terminals.on?.('data', ({ id: tid, data }) => { if (tid.startsWith('w:')) { this.activity.data(tid, data); this.tails.set(tid, ((this.tails.get(tid) || '') + stripAnsi(data)).slice(-2000)); } });
     terminals.on?.('exit', ({ id: tid }) => this.activity.stop(tid));
   }
 
@@ -115,7 +118,7 @@ class Workers extends EventEmitter {
       duties: String(def.duties || '').trim(),
       engine: ENGINES[def.engine] ? def.engine : 'claude',
       model: this.modelFor(ENGINES[def.engine] ? def.engine : 'claude', def.model),
-      worktree: !!def.worktree, extraArgs: String(def.extraArgs || '').trim(), command: String(def.command || '').trim(),
+      skills: this.rt.skills ? this.rt.skills.known(def.skills) : [], worktree: !!def.worktree, budget: Math.max(0, Number(def.budget) || 0), extraArgs: String(def.extraArgs || '').trim(), command: String(def.command || '').trim(),
       permissionMode: PERMISSION_MODES.includes(def.permissionMode) ? def.permissionMode : 'auto',
       seed: crypto.randomBytes(4).readUInt32LE(0),
       deskId: def.deskId || null, sessionId: null, created: Date.now(), autostart: true,
@@ -145,7 +148,10 @@ class Workers extends EventEmitter {
     for (const k of ['name', 'role', 'duties', 'deskId']) if (patch[k] !== undefined) w[k] = patch[k];
     if (ENGINES[patch.engine] && patch.engine !== w.engine) { w.engine = patch.engine; if (patch.model === undefined) w.model = this.modelFor(w.engine, ''); }
     if (patch.model !== undefined) w.model = this.modelFor(w.engine || 'claude', patch.model);
+    if (patch.reroll) w.seed = crypto.randomBytes(4).readUInt32LE(0);          // a new look for this worker
     if (patch.worktree !== undefined) w.worktree = !!patch.worktree;
+    if (patch.skills !== undefined) w.skills = this.rt.skills ? this.rt.skills.known(patch.skills) : [];
+    if (patch.budget !== undefined) { w.budget = Math.max(0, Number(patch.budget) || 0); w.budgetWarned = false; w.budgetFrom = null; }
     for (const k of ['extraArgs', 'command']) if (patch[k] !== undefined) w[k] = String(patch[k] || '').trim();
     if (PERMISSION_MODES.includes(patch.permissionMode)) w.permissionMode = patch.permissionMode;
     if (patch.lead) ws.lead = w.id;
@@ -174,6 +180,8 @@ class Workers extends EventEmitter {
     let cwd = w?.cwd || ws.dir;
     if (!w || !cwd) return null;
     if (this.running(wid)) return this.terminals.snapshot(this.terminals.get(this.termId(wid)));
+    const cap = Number(this.store.data.maxRunning) || 12;       // guard against a runaway fan-out filling the machine
+    if (ws.workers.filter((x) => this.running(x.id)).length >= cap) return { error: `En fazla ${cap} çalışan aynı anda açık olabilir; birini durdur.` };
     if (w.worktree) {            // isolated checkout on the worker's own branch
       try { cwd = worktree.ensure(ws, w, this.rt.dataDir); } catch (e) { return { error: e.message }; }
     }
@@ -188,6 +196,8 @@ class Workers extends EventEmitter {
       // Claude Code's own task list and worktree tools would shadow the office board.
       '--disallowedTools', 'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TaskStop', 'EnterWorktree', 'ExitWorktree',
       '--append-system-prompt', briefing(ws, w, memoryFile)];
+    const skillsDir = this.rt.skills?.pluginFor(w);          // playbooks handed to this worker, loaded for this session only
+    if (skillsDir) args.push('--plugin-dir', skillsDir);
     if (sessionId) args.push('--resume', sessionId);
     else { w.sessionId = crypto.randomUUID(); args.push('--session-id', w.sessionId); }
     this.store.save();
@@ -199,6 +209,66 @@ class Workers extends EventEmitter {
     return snap;
   }
 
+  // ---- usage limits: park a worker whose agent hit its limit, resume it after the reset ----
+  // views: this workspace's worker views from the status loop. Returns the workers parked now.
+  limitTick(ws, views, now = Date.now()) {
+    const parked = [], due = [];
+    for (const v of views) {
+      const w = ws.workers.find((x) => x.id === v.id);
+      if (!w) continue;
+      if (w.parked) { if (now >= w.parked.until) due.push(w); continue; }
+      if (!v.running || v.status === 'working' || v.status === 'starting') continue;
+      const tid = this.termId(w.id);
+      const hit = limits.detect(this.tails.get(tid) || '', now);
+      if (!hit) continue;
+      this.tails.set(tid, '');
+      w.parked = { until: hit.resetAt, reason: hit.reason, since: now, guessed: hit.guessed };
+      this.store.save();
+      this.emit('limit', { ws, worker: w, parked: w.parked });
+      parked.push(w);
+    }
+    for (const w of due) this.unpark(ws, w.id, { resume: true });
+    if (parked.length || due.length) this.emit('change', ws.id);
+    return parked;
+  }
+
+  // ---- spend guard: a worker with a budget is warned at 80% and stopped at 100% ----
+  // Spend counts from the first reading after each start, so the owner can raise the budget and restart.
+  budgetTick(ws, views) {
+    for (const v of views) {
+      const w = ws.workers.find((x) => x.id === v.id);
+      if (!w || !(w.budget > 0)) continue;
+      if (!v.running) { if (w.budgetFrom != null || w.budgetWarned) { w.budgetFrom = null; w.budgetWarned = false; } continue; }
+      if (!(v.cost > 0)) continue;
+      if (w.budgetFrom == null) { w.budgetFrom = v.cost; this.store.save(); continue; }
+      const spent = Math.max(0, v.cost - w.budgetFrom);
+      if (spent >= w.budget) {
+        this.stop(ws, w.id);
+        w.budgetFrom = null; w.budgetWarned = false;
+        this.store.save();
+        this.emit('budget', { ws, worker: w, spent, budget: w.budget, stopped: true });
+      } else if (spent >= w.budget * 0.8 && !w.budgetWarned) {
+        w.budgetWarned = true; this.store.save();
+        this.emit('budget', { ws, worker: w, spent, budget: w.budget, stopped: false });
+      }
+    }
+  }
+
+  // resume: also type the "carry on" message (after the reset, or when the owner says so).
+  unpark(ws, wid, { resume = false } = {}) {
+    const w = ws.workers.find((x) => x.id === wid);
+    if (!w?.parked) return false;
+    w.parked = null;
+    this.store.save();
+    if (resume) {
+      if (!this.running(wid)) this.start(ws, wid, { cols: 100, rows: 30 });
+      this.send(ws, wid, '[Ofis] Kullanım limitin sıfırlanmış olmalı. Kaldığın yerden devam et; takıldığın bir iş varsa durumunu bir cümleyle yaz.');
+      this.emit('limit-resume', { ws, worker: w });
+    }
+    this.emit('change', ws.id);
+    return true;
+  }
+
   // Codex / Gemini: no session registry, so a fresh conversation each start (the memory file carries over).
   startOther(ws, w, cwd, memoryFile, { cols, rows }) {
     const eng = ENGINES[w.engine];
@@ -208,7 +278,7 @@ class Workers extends EventEmitter {
     const servers = {};
     for (const [name, c] of Object.entries(this.rt.integrations?.mcpServers() || {})) if (c.url) servers[name] = { httpUrl: c.url, ...(c.headers ? { headers: c.headers } : {}) };
     let l;
-    try { l = launch(w.engine, { worker: w, cwd, mcpUrl, integrations: servers, prompt: briefing(ws, w, memoryFile), dataDir: this.rt.dataDir }); } catch (e) { return { error: e.message }; }
+    try { l = launch(w.engine, { worker: w, cwd, mcpUrl, integrations: servers, prompt: briefing(ws, w, memoryFile, this.rt.skills?.briefing(w) || []), dataDir: this.rt.dataDir }); } catch (e) { return { error: e.message }; }
     const tid = this.termId(w.id);
     this.activity.start(tid);
     const snap = this.terminals.create({ id: tid, kind: 'worker', workerId: w.id, title: w.name, cwd, cmd: bin, args: l.args, env: l.env, cols, rows });
@@ -267,8 +337,8 @@ class Workers extends EventEmitter {
     const running = !!term && term.exited === null;
     if (running && w.engine && w.engine !== 'claude') {
       const a = this.activity.state(this.termId(w.id));
-      return { ...w, token: undefined, running, status: a.status === 'offline' ? 'starting' : a.status, waitingFor: a.waitingFor, statusSince: a.since, activity: null, lastAnswer: null, lastActivity: null, ctx: 0,
-        branch: null, recent: [], sends: [], cost: 0, tokens: 0, lead: ws.lead === w.id, terminalId: this.termId(w.id) };
+      return { ...w, parkedUntil: w.parked?.until || null, token: undefined, running, status: a.status === 'offline' ? 'starting' : a.status, waitingFor: a.waitingFor, statusSince: a.since, activity: null, lastAnswer: null, lastActivity: null, ctx: 0,
+        branch: null, recent: [], sends: [], cost: 0, tokens: 0, lead: ws.lead === w.id, terminalId: this.termId(w.id), decisionOpen: (ws.decisions || []).filter((d) => d.by === w.id && d.status === 'open').length };
     }
     const reg = running ? this.rt.scanner.registryEntry(term.pid) : null;
     if (reg?.sessionId && reg.sessionId !== w.sessionId) {
@@ -284,11 +354,11 @@ class Workers extends EventEmitter {
     if (running) status = reg?.status === 'waiting' ? 'waiting' : reg?.status === 'busy' ? 'working' : reg?.status === 'idle' ? 'idle' : 'starting';
     const lastAnswer = [...(s?.recent || [])].reverse().find((r) => r.role === 'assistant')?.text || null;
     return {
-      ...w, token: undefined, running, status, waitingFor: reg?.waitingFor || null, statusSince: reg?.statusUpdatedAt || null,
+      ...w, parkedUntil: w.parked?.until || null, token: undefined, running, status, waitingFor: reg?.waitingFor || null, statusSince: reg?.statusUpdatedAt || null,
       activity: s?.activity || null, lastAnswer, lastActivity: s?.lastActivity || null, ctx: s?.ctx || 0,
       branch: s?.branch || null, recent: s?.recent || [], sends: s?.sends || [],
       cost: cost?.totalCostUSD || 0, tokens: cost ? Object.values(cost.modelUsage || {}).reduce((a, m) => a + (m.inputTokens || 0) + (m.outputTokens || 0) + (m.cacheReadInputTokens || 0) + (m.cacheCreationInputTokens || 0), 0) : 0,
-      lead: ws.lead === w.id, terminalId: this.termId(w.id),
+      lead: ws.lead === w.id, terminalId: this.termId(w.id), decisionOpen: (ws.decisions || []).filter((d) => d.by === w.id && d.status === 'open').length,
     };
   }
 }

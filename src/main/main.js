@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, Notification, session, systemPreferences } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification, session, systemPreferences, Tray, Menu, nativeImage, safeStorage } = require('electron');
 const { execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -17,11 +17,26 @@ const { Notifier } = require('./notify');
 const { ENGINES, findBin } = require('./engines');
 const worktree = require('./worktree');
 const { Stt } = require('./stt');
+const { Decisions } = require('./decisions');
+const { Skills } = require('./skills');
+const speaker = require('./speak');
+const doctor = require('./doctor');
+const backup = require('./backup');
+const github = require('./github');
+const { WebTool } = require('./webtool');
+const trackers = require('./trackers');
+const { AppTray } = require('./tray');
 const updates = require('./updates');
 const changelog = require('./changelog');
 const scanner = require('./scanner');
 
 app.setName('Agent Office');
+// Crash journal: anything that escapes is written down (and the app keeps running).
+function journal(kind, err) {
+  try { fs.appendFileSync(path.join(app.getPath('userData'), 'crash.log'), `${new Date().toISOString()} ${kind}: ${err?.stack || err}\n`); } catch { /* nothing more to do */ }
+}
+process.on('uncaughtException', (e) => journal('uncaughtException', e));
+process.on('unhandledRejection', (e) => journal('unhandledRejection', e));
 if (process.env.AGENT_OFFICE_DATA) app.setPath('userData', process.env.AGENT_OFFICE_DATA);
 
 let win;
@@ -44,8 +59,8 @@ function findClaude(envPath) {
   return candidates.find((c) => c && fs.existsSync(c)) || 'claude';
 }
 
-function send(channel, payload) {
-  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+function send(channel, payload) {                       // every window: the main one and any popped-out terminals
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(channel, payload);
 }
 
 async function createWindow() {
@@ -64,6 +79,8 @@ async function createWindow() {
 
   // Workers reach the board through MCP; the token in the URL says who is calling.
   const workersRef = {};
+  const decisionsRef = {};
+  const webtoolRef = { current: new WebTool({ BrowserWindow }, path.join(app.getPath('userData'), 'screenshots'), (l) => log(l)) };
   const mcp = await startMcp({
     resolveCaller: (token) => workersRef.current?.byToken(token) || null,
     log,
@@ -73,6 +90,9 @@ async function createWindow() {
       task_create: (c, a) => { const t = board.create(c.ws, { ...a, createdBy: c.worker.id }); return `${t.id} oluşturuldu (${t.status}${t.assignee ? `, ${board.who(c.ws, t.assignee)}` : ''})`; },
       task_update: (c, a) => { const t = board.update(c.ws, a.id, a, c.worker.id); return `${t.id}: ${t.status}${t.assignee ? ` · ${board.who(c.ws, t.assignee)}` : ''}`; },
       task_done: (c, a) => { const t = board.done(c.ws, a.id, a, c.worker.id); return `${t.id} kapatıldı. Rapor kaydedildi.`; },
+      ask_owner: (c, a) => { const d = decisionsRef.current.ask(c.ws, c.worker.id, a); return `${d.id} sahibe iletildi. Cevap terminaline "[Karar ${d.id}] …" olarak gelecek; o zamana kadar bu karara bağlı olmayan işe devam et.`; },
+      web_read: (c, a) => webtoolRef.current.read(a.url),
+      web_screenshot: async (c, a) => `Ekran görüntüsü: ${await webtoolRef.current.shot(a.url, a)}`,
       message: (c, a) => board.message(c.ws, c.worker.id, a.to, a.text),
       memory_note: (c, a) => memory.note(c.ws, c.worker, a.text, a.tags),
       memory_search: (c, a) => { const r = memory.search(c.ws, a.query); return r.length ? r.join('\n') : 'eşleşen not yok'; },
@@ -81,7 +101,8 @@ async function createWindow() {
   // helper sessions the app spawns itself (couriers) — never shown as guests
   const runtime = { children: new Set() };
   const integrations = new Integrations(store);
-  const workers = new Workers(store, terminals, memory, { claudeBin, mcp, scanner, integrations, envPath, dataDir: app.getPath('userData') });
+  const skills = new Skills(store, app.getPath('userData'));
+  const workers = new Workers(store, terminals, memory, { claudeBin, mcp, scanner, integrations, envPath, dataDir: app.getPath('userData'), skills });
   workersRef.current = workers;
   const board = new Board(store, workers);
 
@@ -111,6 +132,8 @@ async function createWindow() {
       guests,
       handsOff: !!store.data.handsOff,
       notify: notifier.view(),
+      decisions: ws ? (ws.decisions || []).slice(0, 100) : [],
+      skills: skills.all().map((s) => ({ id: s.id, name: s.name, description: s.description, builtin: s.builtin, body: s.builtin ? undefined : s.body })),
       app: { version: app.getVersion(), lastSeen: store.data.lastSeenVersion || null, tourDone: !!store.data.tourDone, lang: store.data.lang || 'tr', changelog: changelog.slice(0, 12), updateFeed: store.data.updateFeed || '', update: store.data.updateResult || null },
       presets: { engines: Object.fromEntries(Object.entries(ENGINES).map(([k, e]) => [k, { label: e.label, models: e.models, hint: e.modelHint || '', installed: k === 'claude' || !!findBin(e.bin, envPath) }])), roles: ROLE_PRESETS, models: MODELS, permissionModes: PERMISSION_MODES, statuses: STATUSES },
       integrations: integrations.list(),
@@ -122,6 +145,7 @@ async function createWindow() {
   board.on('change', push);
   const notifier = new Notifier({
     store, send, win: () => win,
+    speak: (n) => { const t = speaker.phrase(n); if (t) speaker.speak(t, store.data.lang || 'tr'); },
     onOpen: (ref) => {
       if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
       if (ref.wsId && store.data.activeWorkspace !== ref.wsId && store.workspace(ref.wsId)) { store.data.activeWorkspace = ref.wsId; store.save(); push(); }
@@ -134,6 +158,12 @@ async function createWindow() {
     if (ws) notifier.taskDone(ws, task, board.who(ws, task.report?.by));
   });
   board.on('assigned', ({ wsId, task, by, assignee }) => { const ws = store.workspace(wsId); if (ws) notifier.taskAssigned(ws, task, by, assignee); });
+  const decisions = new Decisions(store, workers, notifier);
+  decisionsRef.current = decisions;
+  workers.on('limit', ({ ws, worker, parked }) => notifier.limitHit(ws, worker, parked));
+  workers.on('budget', ({ ws, worker, spent, budget, stopped }) => notifier.budgetHit(ws, worker, { spent, budget, stopped }));
+  workers.on('limit-resume', ({ ws, worker }) => notifier.limitResumed(ws, worker));
+  decisions.on('change', push);
   board.on('message', (m) => send('ev:message', m));
   terminals.on('data', (p) => send('ev:pty-data', p));
   terminals.on('exit', (p) => { send('ev:pty-exit', p); push(); });
@@ -162,6 +192,17 @@ async function createWindow() {
   const guest = (id) => guests.find((g) => g.id === id);
 
   // Status loop: Claude's own registry says busy / idle / waiting per worker.
+  const showWin = () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } };
+  let tray = null;
+  try {
+    tray = new AppTray({ Tray, Menu, nativeImage }, {
+      show: showWin,
+      decisions: () => { showWin(); send('ev:notify-open', { type: 'decision' }); },
+      toggleAutopilot: () => { store.data.handsOff = !store.data.handsOff; store.save(); push(); },
+      worker: (id) => { showWin(); send('ev:notify-open', { type: 'worker', id, wsId: store.data.activeWorkspace }); },
+      quit: () => app.quit(),
+    });
+  } catch { tray = null; }
   const loop = async () => {
     if (guestTick++ % 2 === 0) await scanGuests();
     const ws = activeWs();
@@ -171,7 +212,8 @@ async function createWindow() {
       board.tick(ws, views);
       workers.flush(ws);
     }
-    for (const o of store.workspaces) notifier.tick(o, o.workers.map((w) => workers.view(o, w)));   // every project, not only the open one
+    if (tray) { const w0 = activeWs(); tray.update(w0 ? w0.workers.map((w) => workers.view(w0, w)) : [], w0 ? (w0.decisions || []).filter((d) => d.status === 'open').length : 0, !!store.data.handsOff); }
+    for (const o of store.workspaces) { const vs = o.workers.map((w) => workers.view(o, w)); notifier.tick(o, vs); workers.limitTick(o, vs); workers.budgetTick(o, vs); }   // every project, not only the open one
     push();
     setTimeout(loop, win && !win.isDestroyed() && win.isVisible() && !win.isMinimized() ? 2000 : 8000);
   };
@@ -251,10 +293,71 @@ async function createWindow() {
 
   H('task-create', (def) => board.create(need(), { ...def, createdBy: 'user' }).id);
   H('task-update', ({ id, patch }) => board.update(need(), id, patch, 'user').id);
+  H('report-review', ({ id, action, text, anchor }) => { const r = board.reviewReport(need(), id, { action, text, anchor }); push(); return r.review.status; });
   H('task-done', ({ id, report }) => board.done(need(), id, report || { summary: 'Sahip kapattı.' }, 'user').id);
   H('task-remove', ({ id }) => { board.remove(need(), id); return true; });
   const stt = new Stt({ dataDir: app.getPath('userData'), envPath, store });
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media' || permission === 'clipboard-sanitized-write'));
+  H('worker-unpark', ({ id, resume }) => { workers.unpark(need(), id, { resume: !!resume }); push(); return true; });
+  H('doctor', async () => doctor.check({ claudeBin, envPath, dataDir: app.getPath('userData'), stt, micStatus: process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('microphone') : 'granted' }));
+  H('backup-export', async () => {
+    const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('documents'), `AgentOffice-yedek-${backup.stamp()}.zip`), filters: [{ name: 'Zip', extensions: ['zip'] }] });
+    if (r.canceled || !r.filePath) return { canceled: true };
+    backup.exportZip(store, app.getPath('userData'), r.filePath);
+    shell.showItemInFolder(r.filePath);
+    return { file: r.filePath };
+  });
+  const dailyBackup = () => { try { backup.daily(store, app.getPath('userData')); } catch { /* backups are best effort */ } };
+  dailyBackup(); setInterval(dailyBackup, 6 * 3600 * 1000);
+  H('pr-open', async ({ id, title, body }) => {
+    const { ws, w } = wtOf(id);
+    const st = worktree.status(ws, w);
+    if (!st.exists || !st.ahead) throw new Error('Açılacak commit yok.');
+    if (st.dirty.length) throw new Error('Worktree\'de commitlenmemiş değişiklik var; önce commit et.');
+    const last = ws.reports.find((r) => r.by === w.id);
+    const t = title || (last ? `${last.taskId}: ${last.title}` : `${w.name}: ${st.branch}`);
+    const b = body || [last ? last.summary : '', '', '### Commitler', ...st.commits.map((c) => `- ${c}`), '', `_Agent Office · ${w.name}_`].join('\n');
+    return { url: await github.openPr(envPath, ws, w, { title: t, body: b }) };
+  });
+  // Linear / Jira credentials live encrypted with the system keychain (safeStorage), never in plain text.
+  const seal = (v) => (safeStorage.isEncryptionAvailable() ? { enc: safeStorage.encryptString(String(v)).toString('base64') } : (() => { throw new Error('Sistem anahtar zinciri kullanılamıyor.'); })());
+  const unseal = (o) => (o?.enc ? safeStorage.decryptString(Buffer.from(o.enc, 'base64')) : '');
+  H('tracker-status', () => { const t = store.data.trackers || {}; return { linear: !!t.linear?.secret, jira: t.jira?.secret ? { site: t.jira.site, email: t.jira.email } : null }; });
+  H('tracker-save', ({ kind, site, email, secret }) => {
+    if (!String(secret || '').trim()) throw new Error('Anahtar boş olamaz.');
+    store.data.trackers ||= {};
+    store.data.trackers[kind] = kind === 'jira' ? { site: String(site || '').trim(), email: String(email || '').trim(), secret: seal(secret.trim()) } : { secret: seal(secret.trim()) };
+    store.save(); return true;
+  });
+  H('tracker-forget', ({ kind }) => { if (store.data.trackers) delete store.data.trackers[kind]; store.save(); return true; });
+  H('tracker-issues', async ({ kind, jql }) => {
+    const t = (store.data.trackers || {})[kind];
+    if (!t?.secret) throw new Error('Önce hesabı bağla.');
+    return { items: kind === 'linear' ? await trackers.linearIssues(unseal(t.secret)) : await trackers.jiraIssues({ site: t.site, email: t.email, token: unseal(t.secret) }, jql) };
+  });
+  H('issues-list', async () => ({ items: await github.issues(envPath, need()) }));
+  H('tasks-import', ({ items }) => {
+    const ws = need(); let n = 0;
+    for (const it of (items || []).slice(0, 100)) { if (String(it.title || '').trim()) { board.create(ws, { title: String(it.title).slice(0, 200), details: String(it.details || '').slice(0, 4000), createdBy: 'user' }); n++; } }
+    push(); return { count: n };
+  });
+  H('parse-list', ({ text }) => ({ items: github.parseList(text) }));
+  const popouts = new Map();                                // terminal id → window
+  H('popout-open', ({ id }) => {
+    if (!terminals.get(id)) throw new Error('Terminal yok.');
+    const ex = popouts.get(id);
+    if (ex && !ex.isDestroyed()) { ex.show(); ex.focus(); return true; }
+    const pw = new BrowserWindow({ width: 920, height: 620, minWidth: 360, minHeight: 240, backgroundColor: '#15120f', title: terminals.get(id).title || 'Terminal', show: !process.env.AGENT_OFFICE_OFFSCREEN,
+      webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+    pw.loadFile(path.join(__dirname, '..', 'renderer', 'popout.html'), { query: { id } });
+    popouts.set(id, pw);
+    pw.on('closed', () => popouts.delete(id));
+    return true;
+  });
+  H('skill-get', ({ id }) => skills.find(id)?.body || '');
+  H('skill-save', (p) => { const id = skills.save(p); push(); return id; });
+  H('skill-delete', ({ id }) => { skills.remove(id); push(); return true; });
+  H('decision-answer', ({ id, answer }) => { const d = decisions.answer(need(), id, answer); push(); return d.id; });
   H('stt-status', () => stt.status());
   H('stt-setup', async () => { await stt.setup((text, pct) => send('ev:stt-progress', { text, pct })); return { ok: true }; });
   H('stt-transcribe', async ({ wav, lang }) => ({ text: await stt.transcribe(Buffer.from(wav), { lang: lang === 'en' ? 'en' : 'tr' }) }));

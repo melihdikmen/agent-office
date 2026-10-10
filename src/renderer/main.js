@@ -8,6 +8,8 @@ import { NotifyView } from './views/notify.js';
 import { initI18n, tt } from './i18n.js';
 import { startTour } from './views/tour.js';
 import { Voice } from './views/voice.js';
+import { DecisionsView } from './views/decisions.js';
+import { SkillsView } from './views/skills.js';
 import { BoardView } from './views/board.js';
 import { ReportsView } from './views/reports.js';
 import { MemoryView } from './views/memory.js';
@@ -51,9 +53,10 @@ const office = new Office($('#office'), {
   onDesk: (desk) => deskDialog(desk),
 });
 const onMic = (id) => toggleVoice(id);
+const onPopout = async (id, from) => { const r = await api.popoutOpen({ id }); if (r?.error) return toast(r.error, 'err'); await from.close(id, { kill: false }); };
 const moveTerm = async (id, from) => { const to = from === panes ? panes2 : panes; await from.close(id, { kill: false }); to.meta = from.meta; await to.open(id); };
-const panes = new Panes($('#panes'), api, { onFocus: () => {}, onClose: () => {}, onMove: moveTerm, onMic });
-const panes2 = new Panes($('#panes2'), api, { onFocus: () => {}, onClose: () => {}, onMove: moveTerm, onMic });   // terminals shown in the office area
+const panes = new Panes($('#panes'), api, { onFocus: () => {}, onClose: () => {}, onMove: moveTerm, onMic, onPopout });
+const panes2 = new Panes($('#panes2'), api, { onFocus: () => {}, onClose: () => {}, onMove: moveTerm, onMic, onPopout });   // terminals shown in the office area
 const leftTermOpen = () => !$('#leftTerm').classList.contains('hidden');
 const openIn = async (id) => { const own = [panes, panes2].find((p) => p.has(id)); if (own) { if (own === panes) setRTab('terminal'); return own.focus(id); } return (leftTermOpen() ? panes2 : panes).open(id); };
 const notify = new NotifyView($('#bellBtn'), $('#notifyPanel'), api, { onOpen: (ref) => openRef(ref) });
@@ -61,14 +64,17 @@ const notify = new NotifyView($('#bellBtn'), $('#notifyPanel'), api, { onOpen: (
 async function openRef(ref) {
   if (!ref) return;
   if (ref.wsId && S.ws?.id !== ref.wsId) { await api.wsSwitch({ id: ref.wsId }); S.layoutFor = null; await new Promise((r) => setTimeout(r, 400)); }
-  if (ref.type === 'task') { setRTab('board'); board.open = ref.id; board.render(); }
+  if (ref.type === 'decision') { setRTab('decisions'); setTimeout(() => decisionsView.open(ref.id), 50); }
+  else if (ref.type === 'task') { setRTab('board'); board.open = ref.id; board.render(); }
   else if (ref.type === 'worker') { select(ref.id); openWorkerTerminal(ref.id); }
 }
-const board = new BoardView($('#rtab-board'), api, { onSelectWorker: select });
-const reports = new ReportsView($('#rtab-reports'), { onOpenTask: (id) => { setRTab('board'); board.open = id; board.render(); } });
+const board = new BoardView($('#rtab-board'), api, { onSelectWorker: select, onImport: () => importDialog() });
+const reports = new ReportsView($('#rtab-reports'), { api, toast, onOpenTask: (id) => { setRTab('board'); board.open = id; board.render(); } });
 const memory = new MemoryView($('#rtab-memory'), api);
 const watch = new WatchView($('#ltab-code'), api);
 const browser = new BrowserView($('#rtab-browser'));
+const decisionsView = new DecisionsView($('#rtab-decisions'), api, { toast, onCount: (n) => { $('#decisionCount').textContent = n ? String(n) : ''; $('#decisionCount').classList.toggle('hot', n > 0); } });
+const skillsView = new SkillsView($('#rtab-skills'), api, { toast, openDialog: (...a) => openDialog(...a), closeDialog: () => dlg.close(), dlgBody: () => dlgBody });
 const hub = new HubView($('#rtab-hub'), api, { toast });
 
 // ---- state -------------------------------------------------------------------
@@ -97,6 +103,8 @@ function apply(st) {
     bubbles(workers);
   } else office.setWorkers([], S.guests);
   notify.set(st.notify);
+  decisionsView.set(st.decisions, workers);
+  skillsView.set(st.skills, workers);
   firstRun(st);
   $('#tabInfo').classList.toggle('has', !!st.app?.update?.newer);
   $('#railDot').className = `rail-dot ${workers.some((w) => w.status === 'waiting') ? 'warn' : workers.some((w) => w.status === 'working') ? 'busy' : ''}`;
@@ -227,7 +235,7 @@ function agentMenu(id, x, y) {
   select(id);
   const items = g
     ? [['▮ Terminalde aç', async () => { const r = await api.guestTerminal({ id }); if (r?.error) toast(r.error, 'err'); }], ['✦ Bu ofise dahil et', () => adoptDialog(g)]]
-    : [['▮ Terminalini aç', () => openWorkerTerminal(id)], ['ⓘ Detay / ayarlar', () => workerDialog(w)], ...(w.running ? [['■ Durdur', () => api.workerStop({ id })]] : [['▶ Başlat', () => startWorker(id)]])];
+    : [['😀 Tepki ver: 👍 👏 🎉 ☕', () => office.say(id, '👍 👏 🎉', 4)], ['▮ Terminalini aç', () => openWorkerTerminal(id)], ['ⓘ Detay / ayarlar', () => workerDialog(w)], ...(w.parkedUntil ? [['▶ Limit beklemesini bitir, şimdi devam ettir', () => api.workerUnpark({ id, resume: true })], ['✕ Beklemeyi iptal et (devam ettirme)', () => api.workerUnpark({ id })]] : []), ...(w.running ? [['■ Durdur', () => api.workerStop({ id })]] : [['▶ Başlat', () => startWorker(id)]])];
   const m = document.createElement('div');
   m.className = 'ctx-menu';
   m.innerHTML = `<div class="ctx-title">${esc((g || w).name)}</div>` + items.map(([t], i) => `<button data-i="${i}">${t}</button>`).join('');
@@ -294,7 +302,7 @@ function setLTab(t) {
 function setRTab(t) {
   S.rtab = t;
   $$('[data-rtab]').forEach((b) => b.classList.toggle('on', b.dataset.rtab === t));
-  for (const k of ['terminal', 'board', 'reports', 'memory', 'browser', 'hub']) $(`#rtab-${k}`).classList.toggle('hidden', k !== t);
+  for (const k of ['terminal', 'board', 'reports', 'memory', 'browser', 'skills', 'decisions', 'hub']) $(`#rtab-${k}`).classList.toggle('hidden', k !== t);
   if (t === 'terminal') { panes.fitAll(); if (panes.focused) panes.focus(panes.focused); }
   if (t === 'memory') { memory.resize(); memory.refresh(); }
   if (t === 'browser') browser.show(); else browser.blur();
@@ -310,10 +318,11 @@ $('#editBtn').onclick = () => {
   const bar = $('#editBar');
   bar.classList.toggle('hidden', !S.edit);
   if (S.edit) {
-    bar.innerHTML = `<span class="muted">Ekle:</span>${[['desk', 'Masa'], ['plant', 'Bitki'], ['shelf', 'Kitaplık'], ['sofa', 'Kanepe'], ['board', 'Tahta'], ['coffee', 'Kahve'], ['cooler', 'Sebil'], ['rack', 'Sunucu'], ['table', 'Masa (toplantı)'], ['rug', 'Halı']].map(([k, l]) => `<button data-add="${k}">${l}</button>`).join('')}<span class="spacer"></span><button data-floor>Zemin ↻</button>`;
+    bar.innerHTML = `<span class="muted">Ekle:</span>${[['desk', 'Masa'], ['plant', 'Bitki'], ['shelf', 'Kitaplık'], ['sofa', 'Kanepe'], ['board', 'Tahta'], ['coffee', 'Kahve'], ['cooler', 'Sebil'], ['rack', 'Sunucu'], ['table', 'Masa (toplantı)'], ['rug', 'Halı']].map(([k, l]) => `<button data-add="${k}">${l}</button>`).join('')}<span class="spacer"></span><button data-floor>Zemin ↻</button> <button class="btn small" data-theme title="Tüm odalara hazır bir görünüm uygula (varsayılan, sıcak, serin, koyu, pastel)">🎨 Tema</button>`;
     bar.onclick = (e) => {
       const add = e.target.closest('[data-add]')?.dataset.add;
       if (add) office.addItem(add);
+      if (e.target.closest('[data-theme]')) { const names = ['varsayilan', 'sicak', 'serin', 'koyu', 'pastel']; S.themeIdx = ((S.themeIdx ?? -1) + 1) % names.length; office.applyTheme(names[S.themeIdx]); toast(`${tt('Tema', 'Theme')}: ${names[S.themeIdx]}`); }
       if (e.target.closest('[data-floor]')) { const r = office.layout.rooms[(S.floorIdx = ((S.floorIdx || 0) + 1) % office.layout.rooms.length)]; office.cycleFloor(r.id); toast(`${r.name}: zemin değişti`); }
     };
   }
@@ -348,6 +357,7 @@ function workerDialog(w = null) {
     <label>Görev tanımı <textarea name="duties" rows="3">${esc(w?.duties || '')}</textarea></label>
     <div class="grid2"><label>Motor <select name="engine">${engineOptions(w?.engine)}</select></label><label>İzinler <select name="permissionMode">${permOptions(w?.permissionMode)}</select></label></div>
     <label>Model <span class="model-slot">${modelField(w?.engine || 'claude', w?.model)}</span></label>
+    <label>Bütçe (USD, her başlatmada; boş = sınırsız) <input name="budget" type="number" min="0" step="0.5" value="${w?.budget || ''}" placeholder="örn. 5"></label>
     <label class="row"><input type="checkbox" name="worktree" ${w?.worktree ? 'checked' : ''}> Kendi git worktree'sinde çalış (izole dal, diğer ajanlarla çakışmaz)</label>
     ${w?.worktree ? '<div class="wt-box" id="wtBox"><span class="muted">worktree durumu okunuyor…</span></div>' : ''}
     <details class="adv" ${w?.extraArgs || w?.command ? 'open' : ''}><summary>Gelişmiş (Codex / Gemini)</summary>
@@ -356,13 +366,13 @@ function workerDialog(w = null) {
     <label class="row"><input type="checkbox" name="lead" ${w?.lead ? 'checked' : ''}> Lider (hedefleri böler ve dağıtır)</label>
     ${w ? '' : '<label class="row"><input type="checkbox" name="start" checked> Hemen başlat</label>'}
     ${w ? `<div class="meta"><span>durum: ${STATUS_TR[w.status]}</span><span>$${(w.cost || 0).toFixed(2)}</span><span>${Math.round((w.tokens || 0) / 1000)}k tok</span></div>
-      <div class="row acts"><button type="button" class="btn small" data-w="memory">Hafızasını gör</button>${w.running ? '<button type="button" class="btn small" data-w="stop">Durdur</button>' : '<button type="button" class="btn small" data-w="start">Başlat</button>'}<span class="spacer"></span><button type="button" class="btn small danger" data-w="remove">İşten çıkar</button></div>` : ''}
+      <div class="row acts"><button type="button" class="btn small" data-w="memory">Hafızasını gör</button><button type="button" class="btn small" data-w="look" title="Karakterin görünümünü yeniden rastgele seç">🎲 Görünümü değiştir</button>${w.running ? '<button type="button" class="btn small" data-w="stop">Durdur</button>' : '<button type="button" class="btn small" data-w="start">Başlat</button>'}<span class="spacer"></span><button type="button" class="btn small danger" data-w="remove">İşten çıkar</button></div>` : ''}
     <div class="dlg-actions"><button value="cancel" class="btn" formnovalidate>Vazgeç</button><button value="save" class="btn primary">${w ? 'Kaydet' : 'İşe al'}</button></div></form>`,
   async (fd, form) => {
     const preset = fd.get('rolePreset');
     const role = preset === '__custom' ? String(fd.get('role')).trim() : preset;
     const presetDuties = $('option:checked', form.rolePreset)?.dataset.duties || '';
-    const def = { name: fd.get('name'), role, duties: String(fd.get('duties')).trim() || presetDuties, model: fd.get('model'), engine: fd.get('engine'), command: fd.get('command'), extraArgs: fd.get('extraArgs'), worktree: !!fd.get('worktree'), permissionMode: fd.get('permissionMode'), lead: !!fd.get('lead') };
+    const def = { name: fd.get('name'), role, duties: String(fd.get('duties')).trim() || presetDuties, model: fd.get('model'), engine: fd.get('engine'), command: fd.get('command'), extraArgs: fd.get('extraArgs'), worktree: !!fd.get('worktree'), budget: fd.get('budget'), permissionMode: fd.get('permissionMode'), lead: !!fd.get('lead') };
     if (w) { await api.workerUpdate({ id: w.id, patch: def }); return; }
     const id = await api.workerCreate(def);
     if (id?.error) { toast(id.error, 'err'); return false; }
@@ -378,6 +388,8 @@ function workerDialog(w = null) {
     if (!act || !w) return;
     if (act === 'start') { await startWorker(w.id); dlg.close(); }
     if (act === 'stop') { await api.workerStop({ id: w.id }); dlg.close(); }
+    if (act === 'look') { await api.workerUpdate({ id: w.id, patch: { reroll: true } }); toast(tt('Yeni görünüm', 'New look')); }
+    if (act === 'pr') { r = await api.prOpen({ id: w.id }); if (r?.url) { toast(`PR açıldı: ${r.url}`); api.openUrl({ url: r.url }); } }
     if (act === 'remove') { if (confirm(`${w.name} işten çıkarılsın mı? Terminali kapanır, hafıza dosyası kalır.`)) { await api.workerRemove({ id: w.id }); select(null); dlg.close(); } }
     if (act === 'memory') { const text = await api.workerMemory({ id: w.id }); openDialog(`<form><h3>${esc(w.name)} · hafıza</h3><pre class="memo">${esc(text || '(boş)')}</pre><div class="dlg-actions"><button value="cancel" class="btn" formnovalidate>Kapat</button></div></form>`); }
   };
@@ -395,6 +407,7 @@ async function loadWorktree(w) {
     ${st.commits.length ? `<ul class="wt-commits">${st.commits.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : '<div class="muted">Henüz commit yok.</div>'}
     <div class="row acts"><button type="button" class="btn small" data-wt="commit" ${st.dirty.length ? '' : 'disabled'}>Commit'le</button>
       <button type="button" class="btn small primary" data-wt="merge" ${st.ahead && !st.dirty.length ? '' : 'disabled'}>${esc(st.base)} dalına birleştir</button>
+      <button type="button" class="btn small" data-wt="pr" ${st.ahead && !st.dirty.length ? '' : 'disabled'} title="Dalı GitHub'a gönderip pull request açar (gh gerekir)">PR aç</button>
       <button type="button" class="btn small" data-wt="remove">Worktree'yi sil</button></div>`;
   box.onclick = async (e) => {
     const act = e.target.closest('[data-wt]')?.dataset.wt;
@@ -518,6 +531,53 @@ function swapTerminals(toOffice) {
 $('#swapBtn').onclick = () => swapTerminals(!leftTermOpen());
 try { if (localStorage.getItem('ao.termInOffice')) swapTerminals(true); } catch { /* storage unavailable */ }
 
+// ---- import tasks: GitHub / Linear / Jira issues or a pasted list ----------------------------
+async function importDialog() {
+  if (!S.ws) return wsDialog();
+  const SRC = [['gh', 'GitHub'], ['linear', 'Linear'], ['jira', 'Jira'], ['list', tt('Liste yapıştır', 'Paste a list')]];
+  openDialog(`<form><h3>⬇ ${tt('Görevleri içe aktar', 'Import tasks')}</h3>
+    <div class="seg" id="impTabs">${SRC.map(([k, l], i) => `<button type="button" data-t="${k}" class="${i ? '' : 'on'}">${l}</button>`).join('')}</div>
+    <div id="impBody"><div class="muted">${tt('Yükleniyor…', 'Loading…')}</div></div>
+    <div class="dlg-actions"><button value="cancel" class="btn" formnovalidate>${tt('Vazgeç', 'Cancel')}</button><button type="button" class="btn primary" id="impGo">${tt('İçe aktar', 'Import')}</button></div></form>`);
+  let mode = 'gh', items = [];
+  const body = $('#impBody');
+  const list = (rows) => { items = rows; body.innerHTML = rows.length ? `<div class="imp-list">${rows.map((i, n) => `<label class="row"><input type="checkbox" data-i="${n}" checked> <b>${esc(i.key)}</b> ${esc(i.title)} ${i.status ? `<span class="chip">${esc(i.status)}</span>` : ''}</label>`).join('')}</div>` : `<div class="muted">${tt('Aktarılacak açık iş yok.', 'No open items.')}</div>`; };
+  const fail = (m) => { body.innerHTML = `<div class="wt-warn">${esc(m)}</div>`; };
+  async function show(t) {
+    mode = t; items = [];
+    $$('#impTabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
+    body.innerHTML = `<div class="muted">${tt('Yükleniyor…', 'Loading…')}</div>`;
+    if (t === 'list') { body.innerHTML = `<label>${tt('Her satır bir görev (madde işaretleri ve numaralar atılır)', 'One task per line (bullets and numbers are stripped)')}<textarea name="list" rows="8" placeholder="- [ ] Giriş ekranı&#10;- Şifre sıfırlama"></textarea></label>`; return; }
+    if (t === 'gh') { const r = await api.issuesList(); return r?.error ? fail(r.error) : list(r.items.map((i) => ({ key: `#${i.number}`, title: i.title, status: i.labels[0] || '', details: `${i.body}\n\n${i.url}` }))); }
+    const st = await api.trackerStatus();
+    const has = t === 'linear' ? st.linear : !!st.jira;
+    if (!has) {
+      body.innerHTML = `<p class="muted">${t === 'linear' ? tt('Linear → Settings → API → Personal API keys.', 'Linear → Settings → API → Personal API keys.') : tt('id.atlassian.com → Security → API tokens.', 'id.atlassian.com → Security → API tokens.')} ${tt('Anahtar sistem anahtar zincirinde şifreli saklanır.', 'The key is stored encrypted in the system keychain.')}</p>
+        ${t === 'jira' ? `<div class="grid2"><label>${tt('Site', 'Site')} <input name="site" placeholder="sirket.atlassian.net"></label><label>E-posta <input name="email" type="email"></label></div>` : ''}
+        <label>${t === 'linear' ? 'API key' : 'API token'} <input name="secret" type="password" autocomplete="off"></label><button type="button" class="btn small primary" id="impConnect">${tt('Bağlan', 'Connect')}</button>`;
+      $('#impConnect').onclick = async () => {
+        const r = await api.trackerSave({ kind: t, site: $('input[name=site]')?.value, email: $('input[name=email]')?.value, secret: $('input[name=secret]').value });
+        if (r?.error) return toast(r.error, 'err');
+        show(t);
+      };
+      return;
+    }
+    const r = await api.trackerIssues({ kind: t });
+    if (r?.error) { fail(r.error); body.insertAdjacentHTML('beforeend', `<button type="button" class="btn small" id="impForget">${tt('Hesabı unut', 'Forget account')}</button>`); $('#impForget').onclick = async () => { await api.trackerForget({ kind: t }); show(t); }; return; }
+    list(r.items.map((i) => ({ key: i.key, title: i.title, status: i.status, details: `${i.body}\n\n${i.url}` })));
+  }
+  $('#impTabs').onclick = (e) => { const t = e.target.dataset.t; if (t) show(t); };
+  $('#impGo').onclick = async () => {
+    let picked;
+    if (mode === 'list') picked = (await api.parseList({ text: $('textarea[name=list]').value })).items.map((title) => ({ title }));
+    else picked = $$('#impBody [data-i]:checked').map((c) => { const i = items[c.dataset.i]; return { title: `${i.key} ${i.title}`, details: i.details }; });
+    if (!picked.length) return toast(tt('Seçili bir şey yok.', 'Nothing selected.'), 'err');
+    const res = await api.tasksImport({ items: picked });
+    dlg.close(); toast(tt(`${res.count} görev eklendi`, `${res.count} tasks added`));
+  };
+  show('gh');
+}
+
 // ---- voice input: speak, the text is typed into the terminal (Enter stays with you) -----------
 const voiceHud = document.createElement('div');
 voiceHud.className = 'voice-hud hidden';
@@ -595,6 +655,8 @@ function aboutDialog() {
     <div class="upd ${u?.newer ? 'new' : ''}"><div>${u ? (u.newer ? `<b>${tt('Yeni sürüm', 'New version')} v${esc(u.version)}</b>${u.notes ? ` — ${esc(u.notes.slice(0, 160))}` : ''}` : tt('Güncelsin.', 'You are up to date.')) : tt('Güncelleme adresi girilmemiş.', 'No update address set.')}</div>
       <div class="row"><input name="feed" value="${esc(a.updateFeed)}" placeholder="${tt('Güncelleme adresi (JSON ya da GitHub releases/latest)', 'Update feed (JSON or GitHub releases/latest)')}">
       <button type="button" class="btn small" data-a="check">${tt('Denetle', 'Check')}</button>${u?.newer && u.url ? `<button type="button" class="btn small primary" data-a="download">${tt('İndir', 'Download')}</button>` : ''}</div></div>
+    <div class="row"><button type="button" class="btn small" data-a="doctor">🩺 ${tt('Sistem kontrolü', 'System check')}</button><button type="button" class="btn small" data-a="backup">💾 ${tt('Yedek al', 'Back up')}</button><span class="muted">${tt('Her gün otomatik yedek de alınır (son 7).', 'A daily backup is kept automatically (last 7).')}</span></div>
+    <div id="doctorOut" class="doc-out"></div>
     <b>${tt('Yenilikler', 'What\'s new')}</b><div class="about-log">${log}</div>
     <div class="dlg-actions"><button type="button" class="btn" data-a="tour">${tt('Turu başlat', 'Start the tour')}</button><span class="spacer"></span><button value="cancel" class="btn" formnovalidate>${tt('Kapat', 'Close')}</button></div></form>`);
   const form = $('form', dlgBody);
@@ -603,6 +665,12 @@ function aboutDialog() {
     const act = e.target.closest('[data-a]')?.dataset.a;
     if (act === 'check') { const r = await api.updateCheck({ feed: form.feed.value }); if (r?.error) toast(r.error, 'err'); else { dlg.close(); setTimeout(aboutDialog, 100); } }
     if (act === 'download') api.openUrl({ url: u.url });
+    if (act === 'doctor') {
+      const out = $('#doctorOut'); out.textContent = tt('Kontrol ediliyor…', 'Checking…');
+      const items = await api.doctor();
+      out.innerHTML = items.map((i) => `<div class="doc-i ${i.ok ? 'ok' : 'no'}"><b>${i.ok ? '✓' : '○'} ${esc(i.label)}</b> <span class="muted">${esc(i.detail)}</span>${!i.ok && i.fix ? ` <code>${esc(i.fix)}</code>` : ''}</div>`).join('');
+    }
+    if (act === 'backup') { const r = await api.backupExport(); if (r?.error) toast(r.error, 'err'); else if (r?.file) toast(tt('Yedek hazır: ', 'Backup saved: ') + r.file); }
     if (act === 'tour') { dlg.close(); setTimeout(() => startTour(() => api.appAck({ tour: true })), 250); }
   };
 }

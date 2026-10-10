@@ -1,6 +1,25 @@
 'use strict';
 // What changed per release (Turkish + English); shown after an update and from the ⓘ button.
 module.exports = [
+  { version: '0.9.0', date: '2026-10-10',
+    items: [
+      'Ajan sana karar sorabilir (ask_owner): Kararlar sekmesi, bildirim ve ofiste "⚑ Karar" balonu',
+      'Kullanım limiti dolunca ajan beklemeye alınır, sıfırlanınca kaldığı yerden devam ettirilir',
+      'Çalışan başına bütçe: %80\'de uyarı, %100\'de durdurma',
+      'Raporlara yorum, onay ve "değişiklik iste"; beceri merkezi (hazır ve kendi becerilerin)',
+      'Ajanlar için web_read / web_screenshot araçları; GitHub PR açma, issue ve liste içe aktarma',
+      'Menü çubuğu simgesi, sistem kontrolü, günlük otomatik yedek, gizli anahtar maskeleme, sesli bildirim, gelişmiş hafıza araması',
+      'Terminali ayrı pencereye çıkar; Linear ve Jira\'dan görev içe aktar; ofis temaları ve karakter görünümünü yenileme',
+    ],
+    en: [
+      'Agents can ask you for a decision (ask_owner): Decisions tab, notification and a "⚑ Decision" bubble in the office',
+      'When a usage limit is hit the agent is parked and resumed where it left off after the reset',
+      'Per-worker budget: warning at 80%, stop at 100%',
+      'Comment on, approve or request changes to reports; skill centre (built-in and your own skills)',
+      'web_read / web_screenshot tools for agents; open GitHub PRs, import issues and pasted lists',
+      'Menu-bar icon, system check, daily automatic backup, secret masking, spoken notifications, better memory search',
+      'Pop a terminal out into its own window; import tasks from Linear and Jira; office themes and re-rolling a worker\'s look',
+    ] },
   { version: '0.8.0', date: '2026-10-09',
     items: [
       'Sesli komut: terminal başlığındaki 🎤 (ya da ⌘⇧M) ile konuş, metin terminale yazılır; Enter\'a sen basarsın',

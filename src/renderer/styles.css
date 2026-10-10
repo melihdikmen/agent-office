@@ -437,3 +437,69 @@ pre.memo { white-space: pre-wrap; background: var(--panel2); padding: 10px; bord
 .stt-list { margin: 6px 0; padding-left: 18px; line-height: 1.7; }
 .stt-bar { height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; margin: 6px 0; }
 .stt-bar u { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+
+/* decisions */
+.dc-wrap { padding: 12px; overflow-y: auto; display: grid; gap: 10px; align-content: start; }
+.dc { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel2); display: grid; gap: 6px; }
+.dc:not(.done) { border-color: color-mix(in srgb, var(--yellow) 55%, var(--line)); box-shadow: inset 3px 0 0 var(--yellow); }
+.dc-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.dc-head b { color: var(--yellow); }
+.dc-q { font-weight: 700; line-height: 1.45; }
+.dc-d { color: var(--muted); font-size: 11.5px; white-space: pre-line; }
+.dc-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.dc-opts .ghost { opacity: .75; }
+.dc-free input { width: 100%; }
+.dc.done { opacity: .7; }
+.dc-a { color: var(--green, #7ad7a0); font-size: 11.5px; }
+.dc-h { margin: 8px 0 0; color: var(--muted); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+.dc-empty { color: var(--muted); text-align: center; padding: 28px 12px; line-height: 1.6; }
+#decisionCount.hot { background: var(--yellow); color: #1b1510; border-radius: 8px; padding: 0 5px; }
+
+/* report review */
+.rv { font-size: 12px; color: var(--muted); }
+.rv-approved { color: var(--green, #7ad7a0); }
+.rv-changes { color: var(--yellow); }
+.rp-body { display: grid; gap: 8px; margin-top: 6px; position: relative; }
+.cm { background: none; border: 0; cursor: pointer; opacity: .35; font-size: 11px; padding: 0 3px; }
+.cm:hover, li:hover > .cm { opacity: 1; }
+.rp code[data-anchor] { cursor: pointer; }
+.rp code[data-anchor]:hover { outline: 1px solid var(--accent); }
+.rv-thread { display: grid; gap: 6px; border-left: 2px solid var(--line); padding-left: 10px; }
+.rv-c { font-size: 11.5px; line-height: 1.45; }
+.rv-box { display: grid; gap: 6px; }
+.rv-box textarea { width: 100%; resize: vertical; }
+.rv-anchor a { cursor: pointer; margin-left: 6px; }
+.rp .evidence li { position: relative; }
+.rp .evidence li > .cm { position: absolute; right: 8px; top: 6px; }
+.rp-body > .cm { position: absolute; right: 2px; top: -26px; }
+
+/* skills */
+.sk-wrap { padding: 12px; overflow-y: auto; display: grid; gap: 10px; align-content: start; }
+.sk-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sk-head h3 { margin: 0; font-size: 13px; }
+.sk { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel2); display: grid; gap: 6px; }
+.sk-top { display: flex; align-items: center; gap: 8px; }
+.sk-desc { color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.sk-who { display: flex; flex-wrap: wrap; gap: 5px; }
+.sk-chip { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 12px; padding: 1px 9px; font-size: 11px; cursor: pointer; }
+.sk-chip:hover { color: var(--text); border-color: var(--muted); }
+.sk-chip.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 700; }
+.sk-note { font-size: 11px; line-height: 1.5; }
+
+.doc-out { display: grid; gap: 3px; font-size: 11.5px; }
+.doc-i.ok b { color: var(--green, #7ad7a0); }
+.doc-i.no b { color: var(--yellow); }
+.doc-i code { font-size: 10.5px; background: var(--panel2); padding: 0 4px; border-radius: 3px; }
+
+.imp-list { display: grid; gap: 4px; max-height: 260px; overflow: auto; margin: 8px 0; font-size: 11.5px; }
+.bd-head .btn { margin-left: 6px; }
+
+/* many tabs: tighter and scrollable instead of clipped */
+.right-tabs { overflow-x: auto; scrollbar-width: none; }
+.right-tabs::-webkit-scrollbar { display: none; }
+.right-tabs button { padding: 0 9px; font-size: 11.5px; flex: none; }
+.right-tabs .spacer { flex: 1 0 8px; }
+
+body.popout { overflow: hidden; }
+body.popout .panes { height: 100vh; padding: 6px; }
+body.popout .pane-groups { display: none; }
