@@ -133,6 +133,7 @@ function apply(st) {
   board.set(ws?.tasks || [], workers);
   chatView.set(ws?.chat || [], workers);
   designView.set(ws?.designs || []);
+  editor.setWorkspace(ws?.id || null);
   reports.set(ws?.reports || [], workers);
   memory.setWorkers(workers);
   if (JSON.stringify(st.integrations) !== JSON.stringify(S.integrations)) { S.integrations = st.integrations; hub.setItems(st.integrations || []); }

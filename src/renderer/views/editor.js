@@ -82,6 +82,27 @@ export class EditorPane {
 
   tab() { return this.tabs.find((x) => x.path === this.active) || null; }
 
+  // The office (project) changed: stash this project's tabs and tree, bring back the new one's (or start empty).
+  setWorkspace(id) {
+    if (this.wsId === id) return;
+    const first = this.wsId === undefined;
+    if (!first) {
+      const cur = this.tab(); if (cur) cur.state = this.cm.state;
+      (this.stash ||= new Map()).set(this.wsId, { rootId: this.rootId, tree: this.tree, open: this.open, tabs: this.tabs, active: this.active });
+    }
+    this.wsId = id;
+    if (first) return;
+    const back = this.stash?.get(id);
+    this.rootId = back?.rootId || 'project'; this.tree = back?.tree || new Map(); this.open = back?.open || new Set(['']);
+    this.tabs = back?.tabs || []; this.active = null; this.all = null; this.q = ''; this.roots = [];
+    this.root.querySelector('#edQ').value = '';
+    this.root.querySelector('#edBanner').classList.add('hidden');
+    this.root.querySelector('#edFiles').innerHTML = ''; this.root.querySelector('#edRoot').innerHTML = '';
+    const want = back?.active && this.tabs.some((x) => x.path === back.active) ? back.active : this.tabs[0]?.path;
+    if (want) this.switchTo(want); else { this.cm.setState(this.makeState('', 'txt')); this.drawTabs(); this.showEmpty(); }
+    if (this.visible) this.show(true);
+  }
+
   async show(on) {
     this.visible = on;
     if (!on) return;
