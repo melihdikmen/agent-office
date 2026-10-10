@@ -35,3 +35,16 @@ test('paths cannot leave the root, not even through symlinks or .git', () => {
   fs.mkdirSync(path.join(d, '.git'));
   assert.throws(() => files.write(d, '.git/config', 'a'), /\.git/);
 });
+
+test('create and rename stay inside the root and refuse to overwrite', () => {
+  const d = proj();
+  files.create(d, 'src/lib/x.js', false);
+  files.create(d, 'docs', true);
+  assert.ok(fs.existsSync(path.join(d, 'src/lib/x.js')) && fs.statSync(path.join(d, 'docs')).isDirectory());
+  assert.throws(() => files.create(d, 'docs', true), /zaten/);
+  files.rename(d, 'src/lib/x.js', 'src/lib/y.js');
+  assert.ok(fs.existsSync(path.join(d, 'src/lib/y.js')));
+  assert.throws(() => files.rename(d, 'src/a.js', 'README.md'), /zaten/);
+  assert.throws(() => files.rename(d, 'src/a.js', '../out.js'), /dışında/);
+  assert.throws(() => files.create(d, '../evil', false), /dışında/);
+});

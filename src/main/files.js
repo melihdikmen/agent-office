@@ -44,6 +44,21 @@ function write(root, rel, text) {
   return { mtime: fs.statSync(f).mtimeMs };
 }
 
+function create(root, rel, isDir) {
+  const f = inside(root, rel);
+  if (fs.existsSync(f)) throw new Error('Bu ad zaten var.');
+  if (isDir) fs.mkdirSync(f, { recursive: true }); else { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, ''); }
+  return true;
+}
+
+function rename(root, from, to) {
+  const a = inside(root, from), b = inside(root, to);
+  if (fs.existsSync(b)) throw new Error('Bu ad zaten var.');
+  fs.mkdirSync(path.dirname(b), { recursive: true });
+  fs.renameSync(a, b);
+  return true;
+}
+
 const mtime = (root, rel) => { try { return fs.statSync(inside(root, rel)).mtimeMs; } catch { return 0; } };
 
 // Flat list of files for quick open (bounded).
@@ -57,4 +72,4 @@ function walk(root, limit = 4000) {
   return out;
 }
 
-module.exports = { list, read, write, mtime, walk, inside };
+module.exports = { create, rename, list, read, write, mtime, walk, inside };

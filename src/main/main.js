@@ -406,6 +406,11 @@ async function createWindow() {
   H('fs-list', ({ root, path: p }) => files.list(rootOf(root).dir, p || ''));
   H('fs-read', ({ root, path: p }) => files.read(rootOf(root).dir, p));
   H('fs-write', ({ root, path: p, text }) => files.write(rootOf(root).dir, p, text));
+  H('fs-create', ({ root, path: p, dir }) => files.create(rootOf(root).dir, p, !!dir));
+  H('fs-rename', ({ root, from, to }) => files.rename(rootOf(root).dir, from, to));
+  H('fs-trash', async ({ root, path: p }) => { await shell.trashItem(files.inside(rootOf(root).dir, p)); return true; });
+  H('fs-reveal', ({ root, path: p }) => { shell.showItemInFolder(files.inside(rootOf(root).dir, p || '.')); return true; });
+  H('fs-abs', ({ root, path: p }) => files.inside(rootOf(root).dir, p || '.'));
   H('fs-mtime', ({ root, path: p }) => files.mtime(rootOf(root).dir, p));
   H('fs-walk', ({ root }) => files.walk(rootOf(root).dir));
   H('editor-send', ({ worker, file, from, to, code, comment }) => {

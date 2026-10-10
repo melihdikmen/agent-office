@@ -762,8 +762,10 @@ dialog { font-family: var(--ui); }
 .rvw-empty b { color: var(--text); font-size: 15px; }
 
 /* tarayıcı: işaretleme */
-.br-stage { flex: 1; min-height: 0; position: relative; display: flex; }
-.br-stage #brView { flex: 1; }
+.br-stage { flex: 1; min-height: 0; position: relative; display: flex; justify-content: center; background: var(--panel); }
+.br-frame { position: relative; flex: 1; display: flex; min-width: 0; max-width: 100%; }
+.br-frame.device { flex: none; border-inline: 1px solid var(--line2); box-shadow: 0 0 30px rgba(0,0,0,.35); }
+.br-frame #brView { flex: 1; }
 .br-ov { position: absolute; inset: 0; cursor: crosshair; background: rgba(141,155,255,.05); }
 .br-annbar { display: flex; gap: 8px; align-items: center; padding: 6px 10px; background: rgba(141,155,255,.12); border-bottom: 1px solid var(--line); }
 .br-annbar select { max-width: 200px; }
@@ -819,3 +821,18 @@ dialog { font-family: var(--ui); }
 .ds-stage.capturing .ds-note { display: none; }
 .ds-empty { margin: auto; max-width: 420px; text-align: center; color: var(--muted); line-height: 1.6; padding: 30px; display: grid; gap: 12px; justify-items: center; }
 .ds-empty b { color: var(--text); font-size: 15px; }
+
+.ed-ibar { display: flex; gap: 4px; } .ed-ibar button, .ed-bar button { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; color: var(--text); padding: 3px 8px; cursor: pointer; font-size: 11.5px; white-space: nowrap; }
+.ed-ibar button { flex: 1; } .ed-ibar button:last-child, .ed-ibar button:nth-last-child(2) { flex: 0 0 30px; }
+.ed-ibar button:hover, .ed-bar button:hover { border-color: var(--accent); }
+.ed-bar { display: flex; gap: 4px; align-items: center; padding: 5px 10px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; flex: none; }
+.ed-bar i { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
+.ed-bar button.on { border-color: var(--accent); color: var(--accent); } .ed-bar button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
+.ed-foot { gap: 14px; }
+.ed-ctx { position: fixed; z-index: 140; min-width: 180px; padding: 5px; background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.5); display: grid; }
+.ed-ctx button { background: none; border: 0; color: var(--text); text-align: left; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.ed-ctx button:hover { background: rgba(141,155,255,.16); }
+.ed-row.on { outline: 0; }
+
+.br-bar { flex-wrap: wrap; } .br-bar2 { border-bottom: 1px solid var(--line); } .br-bar select { max-width: 150px; font-size: 11.5px; padding: 3px 6px; }
+.br-find { display: flex; gap: 6px; align-items: center; padding: 5px 10px; border-bottom: 1px solid var(--line); background: var(--panel); } .br-find input { max-width: 260px; }
