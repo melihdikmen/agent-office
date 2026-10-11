@@ -1,48 +1,109 @@
-# Agent Office
+<h1 align="center">Agent Office</h1>
 
-Bilgisayarında bir AI ekibi kur, pixel-art ofiste yönet (Electron). Her çalışan kendi terminalinde Claude Code olarak çalışır; sen hedefi yazarsın, lider böler, ekip çalışır, iş kanıtlı raporla kapanır.
+<p align="center">
+  <b>Run a team of AI agents from a pixel-art office on your desktop.</b><br>
+  Every teammate is a real <a href="https://claude.com/claude-code">Claude Code</a> session in its own terminal.<br>
+  You set the goal, the lead splits it up, the team works, and every task closes with proof.
+</p>
 
-## Neler var
+<p align="center">
+  <img src="docs/img/office.png" alt="The Agent Office: a 3D office with five agents at their desks, a task board and terminal on the right" width="900">
+</p>
 
-- **Pixel-art ofis**: Odalar, masalar, isimli çalışanlar. Çalışan masasında mavi parlar, seni bekleyen "!" ile seslenir, uyuyan "z z" ile oturur, boşta kalan dolaşır. Sprite'a tıkla → son cevabı ve komut kutusu; çift tıkla → terminali. **EDIT** ile eşyaları sürükle, masa ata, zemin değiştir.
-- **Terminal bölmeleri**: Her çalışan ve her shell gerçek bir pty'de (node-pty + xterm). Yana/alta böl, büyüt, kapat; bölme başlığında model, branch ve **kullanım sayacı** (toplam $ ve token).
-- **Ekip**: `+ Çalışan` tek kişi, `+ Takım` şablondan (yazılım, pazarlama, araştırma, ürün). Rol, görev tanımı, model, izin modu. Kalıcı kimlik: her çalışanın oturumu ve hafıza dosyası kalır; kapatıp açınca aynı konuşmaya döner.
-- **Görev panosu**: Backlog → Yapılacak → Yapılıyor → İncelemede → Bitti. Sahibin eklediği hedef lidere gider; lider `task_create` ile alt görevlere böler ve dağıtır. Atanan kart çalışanın terminaline düşer; uyuyorsa uyanır.
-- **Kanıtlı raporlar**: Bir görev yalnızca `task_done` ile, çalıştırılan doğrulamalar (typecheck, build, test…) ve değişen dosyalarla kapanır. Raporlar sekmesinde okunur.
-- **Hands-off**: Sol alttaki anahtar açıkken boşa düşen çalışan sıradaki açık kartı alır.
-- **Hafıza**: Çalışanlar `memory_note` ile karar ve tercihleri yazar, `memory_search` ile takımın hafızasında arar. Hafıza sekmesi notları ve `[[etiket]]` bağlarını harita olarak çizer.
-- **Kod / Canlı izle**: Projede değişen dosyalar anlık listelenir, tıklayınca diff.
-- **Tarayıcı**: Uygulama içi webview (localhost dahil).
-- **Hub**: GitHub, Sentry, Supabase, Linear, Notion, Vercel, Stripe, PostgreSQL, Playwright, Context7. Bir kez bağla; sonra başlayan her çalışan MCP aracı olarak kullanır. Anahtarlar sistem anahtar zincirinde şifreli saklanır.
-- **Türkçe**: Arayüz ve çalışanların dili.
+## What it is
 
-## Çalıştırma
+Agent Office is an Electron app that turns Claude Code sessions into a small company. You see who is working, who is waiting for you and who is asleep. You hand the lead a goal in plain language and watch the board fill up. Nobody gets to say "done" without showing evidence.
+
+## Features
+
+### A living office
+
+Rooms, desks and named teammates. A teammate glows blue while working, calls you with a **!** when it needs you, sits with a **z z** when asleep and wanders to the lounge when idle. Click a character for its latest answer and a command box; double-click to open its terminal.
+
+<p align="center">
+  <img src="docs/img/edit.png" alt="Office edit mode: furniture palette, a 2D floor plan with a dev wing, meeting room, lounge, kitchen and workshop" width="900">
+</p>
+
+Hit **EDIT** to drag furniture, assign desks and change floors. Layouts are yours to design.
+
+### A task board that agents actually use
+
+Backlog → To do → In progress → Review → Done. A goal you add goes to the lead, who breaks it into subtasks with `task_create` and hands them out. An assigned card lands in the teammate's terminal and wakes it up if it was asleep. Subtasks, notes, a list view and drag-and-drop are all there.
+
+<p align="center">
+  <img src="docs/img/board.png" alt="Task board with a parent task, its subtasks and their statuses next to the office" width="900">
+</p>
+
+### Reports with evidence
+
+A task can only be closed with `task_done`: a summary, the checks that were run (typecheck, build, tests, a manual check) with pass/fail, and the files changed. No evidence, no done. Failed checks are flagged so you see them first.
+
+<p align="center">
+  <img src="docs/img/reports.png" alt="Reports tab showing a closed task with a failed check flagged" width="900">
+</p>
+
+### Hub: connect once, every agent gets it
+
+GitHub, Sentry, Supabase, Linear, Notion, Vercel, PostHog, Stripe, PostgreSQL, Playwright and Context7. Connect a service once; every teammate started afterwards can use it as an MCP tool. Dev and prod keys are stored separately and encrypted in your system keychain.
+
+<p align="center">
+  <img src="docs/img/hub.png" alt="The Hub: integration cards with environment selector and key fields" width="900">
+</p>
+
+### And more
+
+- **Terminal panes** – every teammate and shell runs in a real pty (node-pty + xterm). Split, resize, drag to rearrange, layouts are remembered. Each pane header shows model, branch and a **usage meter** (total $ and tokens).
+- **Teams** – add one worker or a whole team from a template (software, marketing, research, product). Role, brief, model and permission mode per worker. Identity is persistent: sessions and memory files survive a restart.
+- **Hands-off mode** – when on, an idle worker picks up the next open card by itself.
+- **Shared memory** – workers save decisions and preferences with `memory_note` and search the team's memory with `memory_search`. The Memory tab draws notes and `[[tag]]` links as a map.
+- **Team chat** – talk to the whole team (the lead takes it) or to one person with `@name`.
+- **Design tab** – an agent drafts a screen mock-up before any code; drop numbered notes on it and send them back.
+- **Code editor and review** – open project files or a worker's branch, edit with syntax colours, send a selection with a comment to a worker, compare branches file by file, commit, merge or open a PR.
+- **In-app browser** – a webview (localhost included) where you can annotate a page and send a numbered screenshot to a worker.
+- **Themes and languages** – six themes (Night, Deep, Charcoal, Phosphor, Paper, Day), English and Turkish.
+
+## Getting started
+
+Requirements: Node.js, and the `claude` CLI (Claude Code v2.1.224 or newer) installed and signed in.
 
 ```bash
-npm install            # node-pty Electron için derlenir (Xcode Command Line Tools gerekir)
-npm start              # derler ve açar
-npm run check          # sözdizimi + derleme + testler
-npm run shot           # deneme ofisi kurup out/shots/ altına görüntü alır (2 gerçek Haiku oturumu başlatır)
+git clone https://github.com/melihdikmen/agent-office.git
+cd agent-office
+npm install      # node-pty is compiled for Electron (needs Xcode Command Line Tools on macOS)
+npm start        # builds and opens the app
 ```
 
-Gereksinim: `claude` CLI (Claude Code v2.1.224+) kurulu ve giriş yapılmış olmalı.
+Other scripts:
 
-## Nasıl çalışır
+```bash
+npm run check        # syntax check + build + tests
+npm run shot         # builds a demo office and saves screenshots to out/shots/
+npm run dist:mac     # package for macOS (also dist:win, dist:linux, dist:all)
+```
 
-- Çalışan başlatmak = `claude --name <ad> --model … --permission-mode … --append-system-prompt <brifing> --mcp-config <ofis>` komutunu bir pty'de açmak. Brifing kimliği, takımı, pano kurallarını ve hafıza dosyasını anlatır.
-- Uygulama yerel bir **MCP sunucusu** çalıştırır (`src/main/mcp.js`); her çalışan kendi token'lı adresinden bağlanır ve `board_list`, `task_create`, `task_update`, `task_done`, `message`, `memory_note`, `memory_search`, `team_list` araçlarını alır. Pano, raporlar ve hafıza bu araçlarla yürür.
-- Durum (çalışıyor / boşta / seni bekliyor) Claude Code'un kendi oturum kaydından (`~/.claude/sessions`), son cevap ve maliyet oturum dökümünden okunur.
-- Sahibin komutu ve pano bildirimleri çalışanın terminaline yazılır; Claude hazır olana kadar kuyrukta bekler.
-- Veriler: ofisler, çalışanlar, kartlar ve raporlar `office.json`'da; hafıza dosyaları `workspaces/<ofis>/memory/` altında (uygulama veri klasöründe). Kod, terminal çıktısı ve oturum dökümleri kendi diskinde kalır.
+## How it works
 
-## Bilinmesi gerekenler
+- Starting a worker means running `claude --name <name> --model … --permission-mode … --append-system-prompt <briefing> --mcp-config <office>` in a pty. The briefing tells it who it is, who its team is, the board rules and where its memory file lives.
+- The app runs a local **MCP server** (`src/main/mcp.js`). Each worker connects through its own tokened address and gets `board_list`, `task_create`, `task_update`, `task_done`, `message`, `memory_note`, `memory_search` and `team_list`. The board, reports and memory all run through these tools.
+- Status (working / idle / waiting for you) is read from Claude Code's own session registry in `~/.claude/sessions`; the last answer and cost come from the session transcript.
+- Your commands and board notifications are typed into the worker's terminal and queued until Claude is ready.
+- Data lives in your app data folder: offices, workers, cards and reports in `office.json`, memory files under `workspaces/<office>/memory/`. Your code, terminal output and session transcripts stay on your disk.
 
-- Her çalışan ayrı bir Claude oturumudur; 4–5 kişilik konuşan bir ekip tek oturumdan çok daha fazla token harcar. Bölme başlığındaki sayaç gerçek maliyeti gösterir.
-- Varsayılan izin modu **auto**; yine de bazı komutlar onay ister, çalışan o zaman ofiste "!" ile görünür ve bildirim gelir; terminalinde yanıtlarsın. "Hiç sormaz" modu seçilebilir (riskli).
-- `~/.claude/sessions` ve döküm biçimi Claude Code'un iç yapısıdır; değişirse durum göstergeleri kabalaşır, iş akışı bozulmaz.
-- Hub'daki paket ve adresler servislerin resmi MCP sunucularıdır; ilk bağlantıda OAuth isteyenler tarayıcı açar.
+## Good to know
 
-## Geliştirme
+- Every worker is a separate Claude session. A talkative team of four or five uses far more tokens than a single session; the usage meter in each pane header shows the real cost.
+- The default permission mode is **auto**. Some commands still ask for approval; the worker then shows a **!** in the office and you answer in its terminal. A "never ask" mode exists and is risky.
+- The format of `~/.claude/sessions` and the transcripts is internal to Claude Code. If it changes, status indicators get coarser; the workflow keeps working.
+- The packages and addresses in the Hub are the services' official MCP servers; ones that need OAuth open your browser on first use.
+- Some interface strings are still Turkish when the language is set to English; translations are being filled in.
 
-- `AGENT_OFFICE_DATA=/dir` ayrı bir veri klasörü kullanır.
-- `scripts/shot.js` uygulamayı görünmez bir pencerede açıp görüntü alır; `SHOT_ONLY=office,board` seçili görünümler, `SHOT_WAIT=60000` liderin görevleri bölmesi için bekleme.
+## Development
+
+- `AGENT_OFFICE_DATA=/dir` uses a separate data folder.
+- `scripts/shot.js` opens the app in an invisible window and takes screenshots (`SHOT_ONLY=office,board` for chosen views, `SHOT_WAIT=60000` to give the lead time to split tasks).
+- `scripts/shot-readme.js` produces the English screenshots in `docs/img/` used by this README.
+- Design notes for the office look and motion live in [`docs/design-agentspace.md`](docs/design-agentspace.md).
+
+## License
+
+MIT
