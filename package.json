@@ -1,7 +1,7 @@
 {
   "name": "agent-office",
   "productName": "Agent Office",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "A live 3D office showing every AI agent running on your machine, with teams you can build from them",
   "main": "src/main/main.js",
   "author": "Melih Dikmen",

@@ -1,6 +1,13 @@
 'use strict';
 // What changed per release (Turkish + English); shown after an update and from the ⓘ button.
 module.exports = [
+  { version: '0.11.1', date: '2026-10-11',
+    items: [
+      'İngilizce arayüz tamamlandı: ajan durumları, paneller, bildirimler, menü çubuğu, sistem kontrolü ve diyaloglar artık İngilizce modda İngilizce',
+    ],
+    en: [
+      'The English interface is complete: agent states, panels, notifications, the menu-bar menu, system check and dialogs now appear in English when the language is English',
+    ] },
   { version: '0.11.0', date: '2026-10-10',
     items: [
       'Tasarım sekmesi: ajan koda geçmeden ekran taslağı hazırlar (design_save), taslağın üzerine numaralı not bırakıp geri gönderirsin, yeni sürüm gelir; onaylayınca lider geliştirmeyi başlatır',
