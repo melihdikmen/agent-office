@@ -1,4 +1,5 @@
 'use strict';
+const { tt } = require('./lang');
 // The task board: cards the owner and the workers create, move and close with a
 // report. Assigning a card types it into the worker's terminal; hands-off mode
 // keeps idle workers fed with the next open card.
@@ -17,7 +18,7 @@ class Board extends EventEmitter {
   list(ws, status) { return status ? ws.tasks.filter((t) => t.status === status) : ws.tasks; }
 
   who(ws, by) {
-    if (!by || by === 'user') return 'Sahip';
+    if (!by || by === 'user') return tt('Sahip', 'Owner');
     return ws.workers.find((w) => w.id === by)?.name || by;
   }
 

@@ -1,4 +1,5 @@
 'use strict';
+const { tt } = require('./lang');
 // Menu-bar icon: live counts at a glance and quick actions without opening the window.
 const path = require('path');
 
@@ -11,14 +12,14 @@ function summary(views, decisionsOpen) {
 function menuTemplate({ views, decisionsOpen, handsOff, actions }) {
   const s = summary(views, decisionsOpen);
   const t = [
-    { label: `${s.working} çalışıyor · ${s.waiting} bekliyor · ${decisionsOpen} karar`, enabled: false },
+    { label: tt(`${s.working} çalışıyor · ${s.waiting} bekliyor · ${decisionsOpen} karar`, `${s.working} working · ${s.waiting} waiting · ${decisionsOpen} decisions`), enabled: false },
     { type: 'separator' },
-    { label: 'Ofisi aç', click: actions.show },
+    { label: tt('Ofisi aç', 'Open the office'), click: actions.show },
   ];
-  if (decisionsOpen) t.push({ label: `Bekleyen kararlar (${decisionsOpen})`, click: actions.decisions });
-  t.push({ label: `Otopilot: ${handsOff ? 'açık' : 'kapalı'} (değiştir)`, click: actions.toggleAutopilot });
-  if (views.length) t.push({ type: 'separator' }, ...views.slice(0, 12).map((v) => ({ label: `${v.name} · ${v.status === 'working' ? 'çalışıyor' : v.status === 'waiting' ? 'seni bekliyor' : v.running ? 'boşta' : 'uyuyor'}`, click: () => actions.worker(v.id) })));
-  t.push({ type: 'separator' }, { label: 'Çık', click: actions.quit });
+  if (decisionsOpen) t.push({ label: tt(`Bekleyen kararlar (${decisionsOpen})`, `Pending decisions (${decisionsOpen})`), click: actions.decisions });
+  t.push({ label: tt(`Otopilot: ${handsOff ? 'açık' : 'kapalı'} (değiştir)`, `Autopilot: ${handsOff ? 'on' : 'off'} (toggle)`), click: actions.toggleAutopilot });
+  if (views.length) t.push({ type: 'separator' }, ...views.slice(0, 12).map((v) => ({ label: `${v.name} · ${v.status === 'working' ? tt('çalışıyor', 'working') : v.status === 'waiting' ? tt('seni bekliyor', 'waiting for you') : v.running ? tt('boşta', 'idle') : tt('uyuyor', 'asleep')}`, click: () => actions.worker(v.id) })));
+  t.push({ type: 'separator' }, { label: tt('Çık', 'Quit'), click: actions.quit });
   return t;
 }
 

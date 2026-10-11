@@ -4,6 +4,9 @@
 import * as THREE from 'three';
 import { ITEMS, floorTile, characterColors } from './sprites.js';
 import { bubbleFor } from './status.mjs';
+import { tt } from '../i18n.js';
+const ROOM_EN = { TOPLANTI: 'MEETING', KAHVE: 'COFFEE', 'ATÖLYE': 'WORKSHOP', SUNUCU: 'SERVERS' };
+const roomName = (n) => tt(n, ROOM_EN[n] || n);
 
 const key = (x, y) => `${x},${y}`;
 const mat = (color, extra = {}) => new THREE.MeshLambertMaterial({ color, ...extra });
@@ -287,7 +290,7 @@ export class Scene3D {
       const r = o.layout.rooms[i]; if (!r) return;
       tmp.set(r.x + 0.6, 0.3, r.y + r.h - 0.3).project(this.camera);
       let active = 0; for (const c of o.chars.values()) if (c.view.status === 'working' && o.roomAt.get(key(Math.round(c.x), Math.round(c.y))) === r.id) active++;
-      const label = `// ${r.name}${active ? ` · ${active}` : ''}`;
+      const label = `// ${roomName(r.name)}${active ? ` · ${active}` : ''}`;
       if (el.textContent !== label) el.textContent = label;
       el.style.transform = `translate(${(tmp.x * 0.5 + 0.5) * this.w}px,${(-tmp.y * 0.5 + 0.5) * this.h}px) translate(0,-100%)`;
     });
@@ -315,7 +318,7 @@ export class Scene3D {
     this.renderer.render(this.scene, this.camera);
     this.summaryEl ||= (() => { const e = document.createElement('div'); e.className = 'o3-summary'; this.hud.append(e); return e; })();
     const n = this.o.summary();
-    const html = `<span style="color:var(--blue)">●</span> ${n.working} çalışıyor <span style="color:var(--yellow)">●</span> ${n.waiting} bekliyor <span style="color:var(--muted)">○</span> ${n.sleeping} uyuyor`;
+    const html = `<span style="color:var(--blue)">●</span> ${n.working} ${tt('çalışıyor', 'working')} <span style="color:var(--yellow)">●</span> ${n.waiting} ${tt('bekliyor', 'waiting')} <span style="color:var(--muted)">○</span> ${n.sleeping} ${tt('uyuyor', 'asleep')}`;
     if (this.summaryHtml !== html) { this.summaryHtml = html; this.summaryEl.innerHTML = html; }
   }
 

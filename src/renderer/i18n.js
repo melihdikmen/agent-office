@@ -1,6 +1,7 @@
 // Turkish is the source language; English is applied on top. Static and dynamic
 // DOM text is translated by exact match (and a few patterns), so views stay untouched.
 // New components use tt('Türkçe', 'English') directly.
+import { EXTRA_PAIRS, EXTRA_PATTERNS } from './i18n-extra.js';
 const PAIRS = [
   ['Ofis', 'Office'], ['Sohbet', 'Chat'], ['İnceleme', 'Review'], ['Editör', 'Editor'], ['Tasarım', 'Design'], ['Takım sohbeti', 'Team chat'], ['Kod', 'Code'], ['Terminal', 'Terminal'], ['Görevler', 'Tasks'], ['Raporlar', 'Reports'], ['Hafıza', 'Memory'], ['Tarayıcı', 'Browser'], ['Hub', 'Hub'],
   ['＋ Takım', '＋ Team'], ['＋ Çalışan', '＋ Worker'], ['⚙ Yönet', '⚙ Manage'], ['EDIT', 'EDIT'], ['▮ Terminal', '▮ Terminal'], ['◫ 3B Ofis', '◫ 3D Office'],
@@ -52,10 +53,10 @@ const PAIRS = [
   ['Kararlar', 'Decisions'], ['Karar istiyor', 'Wants a decision'], ['⚑ Karar', '⚑ Decision'],
   ['Hakkında, yenilikler, güncelleme', 'About, what\'s new, updates'], ['Yenilikler', 'What\'s new'],
 ];
-const DICT = new Map(PAIRS);
+const DICT = new Map([...PAIRS, ...EXTRA_PAIRS]);
 const PATTERNS = [
   [/^(\d+) çalışıyor$/, '$1 working'], [/^(\d+) bekliyor$/, '$1 waiting'], [/^(\d+) uyuyor$/, '$1 asleep'], [/^(\d+)\/(\d+) active$/, '$1/$2 active'],
-  [/^(\d+) (dk|sa|g)$/, '$1 $2'], [/^(\d+) commit önde$/, '$1 commits ahead'], [/^(.+) önce$/, '$1 ago'],
+  [/^(\d+) dk$/, '$1 min'], [/^(\d+) sa$/, '$1 h'], [/^(\d+) g$/, '$1 d'], [/^(\d+) commit önde$/, '$1 commits ahead'], [/^(.+) önce$/, '$1 ago'],
   [/^(\d+) commitlenmemiş değişiklik$/, '$1 uncommitted changes'], [/^(\d+) not · (\d+) bağ$/, '$1 notes · $2 links'], [/^✓ (\d+) doğrulama$/, '✓ $1 checks'], [/^⚠ (\d+) başarısız$/, '⚠ $1 failed'],
   [/^(.+) · detay$/, '$1 · details'], [/^(.+) · hafıza$/, '$1 · memory'], [/^(.+) ofise katıldı$/, '$1 joined the office'], [/^(.+) işe alındı$/, '$1 was hired'], [/^(\d+) commit birleştirildi$/, '$1 commits merged'],
   [/^(.+)'(?:ya|a|e|ye) komut yaz…$/, 'Type a command for $1…'], [/^(.+) uyanıyor, komut birazdan iletilecek…$/, '$1 is waking up, the command goes in shortly…'],
@@ -63,7 +64,11 @@ const PATTERNS = [
   [/^(\d+) doğrulama geçti$/, '$1 checks passed'], [/^(\d+)\/(\d+) doğrulama başarısız$/, '$1/$2 checks failed'], [/^(\d+) dosya$/, '$1 files'],
 ];
 
+const ALL_PATTERNS = [...PATTERNS, ...EXTRA_PATTERNS];
 let current = 'tr';
+// native confirm() text is not DOM, so translate it here
+const nativeConfirm = window.confirm.bind(window);
+window.confirm = (m) => nativeConfirm(current === 'en' ? tr2en(String(m)) : m);
 export const getLang = () => current;
 export const tt = (tr, en) => (current === 'en' ? en : tr);
 
@@ -72,7 +77,7 @@ function tr2en(s) {
   if (!core) return s;
   let out = DICT.get(core);
   if (out == null) { const m = core.match(/^([^A-Za-zÇĞİÖŞÜçğıöşü0-9]+)(.+)$/); if (m && DICT.has(m[2])) out = m[1] + DICT.get(m[2]); }
-  if (out == null) for (const [re, rep] of PATTERNS) { if (re.test(core)) { out = core.replace(re, rep); break; } }
+  if (out == null) for (const [re, rep] of ALL_PATTERNS) { const m = core.match(re); if (m) { out = typeof rep === 'function' ? rep(...m, (x) => tr2en(x)) : core.replace(re, rep); break; } }
   return out == null ? s : s.replace(core, out);
 }
 

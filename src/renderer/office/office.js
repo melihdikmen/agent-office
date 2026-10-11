@@ -3,6 +3,9 @@
 // calling for the owner when blocked. Also the layout editor.
 import { TILE, ITEMS, floorTile, characterSprites } from './sprites.js';
 import { Scene3D } from './office3d.js';
+import { tt } from '../i18n.js';
+const ROOM_EN = { TOPLANTI: 'MEETING', KAHVE: 'COFFEE', 'ATÖLYE': 'WORKSHOP', SUNUCU: 'SERVERS' };
+const roomName = (n) => tt(n, ROOM_EN[n] || n);
 import { bubbleFor, mayWander, summarize } from './status.mjs';
 
 const SPEED = 3.2;              // tiles per second
@@ -470,7 +473,7 @@ export class Office {
       const x = Math.round(this.pan.x + (r.x * TILE + 4) * s), y = Math.round(this.pan.y + (r.y * TILE + 7) * s);
       let active = 0;
       for (const c of this.chars.values()) if (c.view.status === 'working' && this.roomAt.get(key(Math.round(c.x), Math.round(c.y))) === r.id) active++;
-      const label = `// ${r.name}${active ? ` · ${active}` : ''}`;
+      const label = `// ${roomName(r.name)}${active ? ` · ${active}` : ''}`;
       g.fillStyle = 'rgba(16,14,12,0.7)';
       g.fillRect(x - 3, y - 2, g.measureText(label).width + 6, 13);
       g.fillStyle = 'rgba(255,255,255,0.7)';
@@ -480,7 +483,7 @@ export class Office {
     this.drawSummary(g);
     if (this.edit) {
       g.fillStyle = 'rgba(242,139,106,0.9)'; g.font = 'bold 10px ui-monospace, Menlo, monospace';
-      g.fillText('DÜZENLEME: eşyaları sürükle · masaya tıkla → çalışan ata · Delete siler', 10, this.cv.height / this.dpr - 16);
+      g.fillText(tt('DÜZENLEME: eşyaları sürükle · masaya tıkla → çalışan ata · Delete siler', 'EDIT: drag items · click a desk → assign a worker · Delete removes'), 10, this.cv.height / this.dpr - 16);
     }
   }
 
@@ -534,7 +537,7 @@ export class Office {
   // top-right one-liner: ● working ● waiting ○ sleeping (same colors as the bubbles)
   drawSummary(g) {
     const n = this.summary(), col = this.colors();
-    const parts = [[col.blue, '●', `${n.working} çalışıyor`], [col.yellow, '●', `${n.waiting} bekliyor`], [col.muted, '○', `${n.sleeping} uyuyor`]];
+    const parts = [[col.blue, '●', `${n.working} ${tt('çalışıyor', 'working')}`], [col.yellow, '●', `${n.waiting} ${tt('bekliyor', 'waiting')}`], [col.muted, '○', `${n.sleeping} ${tt('uyuyor', 'asleep')}`]];
     g.font = '10px ui-monospace, Menlo, monospace';
     let w = 0; for (const [, d, t] of parts) w += g.measureText(`${d} ${t}`).width + 12;
     let x = this.cv.width / this.dpr - w - 6;

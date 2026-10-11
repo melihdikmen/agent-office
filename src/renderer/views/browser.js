@@ -7,7 +7,7 @@ export class BrowserView {
     this.url = 'http://localhost:3000';
     this.zoom = 1; this.bm = this.loadBm();
     root.innerHTML = `<div class="br-bar">
-        <button class="btn small" data-nav="back" title="${'Geri'}">‹</button><button class="btn small" data-nav="fwd" title="İleri">›</button><button class="btn small" data-nav="reload" title="Yenile">↻</button><button class="btn small" data-nav="hard" title="Önbelleği atla, sert yenile">↻!</button><button class="btn small" data-nav="stop" title="Yüklemeyi durdur">⏹</button><button class="btn small" data-nav="home" title="Ana sayfa (localhost:3000)">⌂</button>
+        <button class="btn small" data-nav="back" title="Önceki sayfa">‹</button><button class="btn small" data-nav="fwd" title="Sonraki sayfa">›</button><button class="btn small" data-nav="reload" title="Yenile">↻</button><button class="btn small" data-nav="hard" title="Önbelleği atla, sert yenile">↻!</button><button class="btn small" data-nav="stop" title="Yüklemeyi durdur">⏹</button><button class="btn small" data-nav="home" title="Ana sayfa (localhost:3000)">⌂</button>
         <form id="brForm"><input id="brUrl" value="${esc(this.url)}" spellcheck="false"></form>
         <button class="btn small" data-nav="star" id="brStar" title="Yer imi ekle / kaldır">☆</button><select id="brBm" title="Yer imleri"></select>
       </div>

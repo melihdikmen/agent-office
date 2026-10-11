@@ -18,6 +18,7 @@ const { ENGINES, findBin } = require('./engines');
 const worktree = require('./worktree');
 const { Stt } = require('./stt');
 const { Chat } = require('./chat');
+const langMod = require('./lang');
 const files = require('./files');
 const { Designs } = require('./designs');
 const { Decisions } = require('./decisions');
@@ -68,6 +69,7 @@ function send(channel, payload) {                       // every window: the mai
 
 async function createWindow() {
   store = new Store(app.getPath('userData'));
+  langMod.setLang(store.data.lang);
   const envPath = await loginShellPath();
   const env = { ...process.env, PATH: envPath };
   delete env.ELECTRON_RUN_AS_NODE;
@@ -267,9 +269,9 @@ async function createWindow() {
     const g = guest(id);
     if (!g) throw new Error('Misafir artık görünmüyor');
     const r = await dialog.showMessageBox(win, {
-      type: 'question', buttons: ['Vazgeç', 'Dahil et'], defaultId: 1, cancelId: 0,
-      message: `${g.name} bu ofise katılsın mı?`,
-      detail: `Oturum bulunduğu yerde durdurulur ve aynı konuşmayla burada, kendi terminalinde devam eder${g.cwd && g.cwd !== ws.dir ? ` (klasörü: ${g.cwd})` : ''}. Pano araçlarını alır.`,
+      type: 'question', buttons: [langMod.tt('Vazgeç', 'Cancel'), langMod.tt('Dahil et', 'Add it')], defaultId: 1, cancelId: 0,
+      message: langMod.tt(`${g.name} bu ofise katılsın mı?`, `Should ${g.name} join this office?`),
+      detail: langMod.tt(`Oturum bulunduğu yerde durdurulur ve aynı konuşmayla burada, kendi terminalinde devam eder${g.cwd && g.cwd !== ws.dir ? ` (klasörü: ${g.cwd})` : ''}. Pano araçlarını alır.`, `The session is stopped where it is and continues here, in its own terminal, with the same conversation${g.cwd && g.cwd !== ws.dir ? ` (folder: ${g.cwd})` : ''}. It gets the board tools.`),
     });
     if (r.response !== 1) return null;
     await stopGuest(g);
@@ -311,7 +313,7 @@ async function createWindow() {
   H('worker-unpark', ({ id, resume }) => { workers.unpark(need(), id, { resume: !!resume }); push(); return true; });
   H('doctor', async () => doctor.check({ claudeBin, envPath, dataDir: app.getPath('userData'), stt, micStatus: process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('microphone') : 'granted' }));
   H('backup-export', async () => {
-    const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('documents'), `AgentOffice-yedek-${backup.stamp()}.zip`), filters: [{ name: 'Zip', extensions: ['zip'] }] });
+    const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('documents'), `AgentOffice-${langMod.tt('yedek', 'backup')}-${backup.stamp()}.zip`), filters: [{ name: 'Zip', extensions: ['zip'] }] });
     if (r.canceled || !r.filePath) return { canceled: true };
     backup.exportZip(store, app.getPath('userData'), r.filePath);
     shell.showItemInFolder(r.filePath);
@@ -475,7 +477,7 @@ async function createWindow() {
   H('worktree-commit', ({ id, message }) => { const { w } = wtOf(id); const r = worktree.commit(w, message); push(); return r; });
   H('worktree-merge', ({ id }) => { const { ws, w } = wtOf(id); const r = worktree.merge(ws, w); push(); return r; });
   H('worktree-remove', ({ id, deleteBranch }) => { const { ws, w } = wtOf(id); workers.stop(ws, id); worktree.remove(ws, w, { deleteBranch: !!deleteBranch }); w.worktree = false; store.save(); push(); return true; });
-  H('app-ack', ({ tour, lang }) => { store.data.lastSeenVersion = app.getVersion(); if (tour) store.data.tourDone = true; if (lang) store.data.lang = lang === 'en' ? 'en' : 'tr'; store.save(); push(); return true; });
+  H('app-ack', ({ tour, lang }) => { store.data.lastSeenVersion = app.getVersion(); if (tour) store.data.tourDone = true; if (lang) { store.data.lang = lang === 'en' ? 'en' : 'tr'; langMod.setLang(store.data.lang); } store.save(); push(); return true; });
   H('open-url', ({ url }) => { if (/^https?:\/\//i.test(url || '')) shell.openExternal(url); return true; });
   const runUpdateCheck = async (feed, quiet) => {
     try {

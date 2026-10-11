@@ -95,7 +95,6 @@ npm run dist:mac     # package for macOS (also dist:win, dist:linux, dist:all)
 - The default permission mode is **auto**. Some commands still ask for approval; the worker then shows a **!** in the office and you answer in its terminal. A "never ask" mode exists and is risky.
 - The format of `~/.claude/sessions` and the transcripts is internal to Claude Code. If it changes, status indicators get coarser; the workflow keeps working.
 - The packages and addresses in the Hub are the services' official MCP servers; ones that need OAuth open your browser on first use.
-- Some interface strings are still Turkish when the language is set to English; translations are being filled in.
 
 ## Development
 

@@ -1,4 +1,5 @@
 'use strict';
+const { tt } = require('./lang');
 // Read notifications aloud with the system voice (macOS `say`); a Turkish voice when installed.
 const { execFile, execFileSync } = require('child_process');
 
@@ -25,9 +26,9 @@ function speak(text, lang = 'tr') {
 // What to say for a notification (short, spoken-language).
 function phrase(n) {
   const who = String(n.title || '').split(' · ').pop();
-  if (n.kind === 'done') return `${who} bir görevi bitirdi. ${String(n.body || '').split('\n')[0]}`;
-  if (n.kind === 'waiting') return `${who} seni bekliyor.`;
-  if (n.kind === 'decision') return `${who} bir karar istiyor. ${String(n.body || '').split('\n')[0]}`;
+  if (n.kind === 'done') return tt(`${who} bir görevi bitirdi. ${String(n.body || '').split('\n')[0]}`, `${who} finished a task. ${String(n.body || '').split('\n')[0]}`);
+  if (n.kind === 'waiting') return tt(`${who} seni bekliyor.`, `${who} is waiting for you.`);
+  if (n.kind === 'decision') return tt(`${who} bir karar istiyor. ${String(n.body || '').split('\n')[0]}`, `${who} wants a decision. ${String(n.body || '').split('\n')[0]}`);
   if (n.kind === 'limit') return `${who}: ${n.subtitle}.`;
   if (n.kind === 'budget') return `${who}: ${n.subtitle}.`;
   return '';

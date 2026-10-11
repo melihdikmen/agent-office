@@ -1,16 +1,17 @@
 'use strict';
+const { tt } = require('./lang');
 // Notifications: which agent did what in which project. Every event is kept in a
 // short history (the bell in the office), and shown as a system notification
 // when the owner is looking elsewhere. Kinds can be switched off one by one.
 
 const KINDS = {
-  done: { label: 'Görev tamamlandı', icon: '✓' },
-  waiting: { label: 'Onay / yanıt bekliyor', icon: '?' },
-  finished: { label: 'Çalışmayı bıraktı (boşta)', icon: '●' },
-  assigned: { label: 'Yeni görev atandı', icon: '→' },
-  decision: { label: 'Karar istiyor', icon: '⚑' },
-  limit: { label: 'Kullanım limiti doldu / devam etti', icon: '⏳' },
-  budget: { label: 'Bütçe uyarısı / aşıldı', icon: '$' },
+  done: { get label() { return tt('Görev tamamlandı', 'Task completed'); }, icon: '✓' },
+  waiting: { get label() { return tt('Onay / yanıt bekliyor', 'Waiting for approval / reply'); }, icon: '?' },
+  finished: { get label() { return tt('Çalışmayı bıraktı (boşta)', 'Stopped working (idle)'); }, icon: '●' },
+  assigned: { get label() { return tt('Yeni görev atandı', 'New task assigned'); }, icon: '→' },
+  decision: { get label() { return tt('Karar istiyor', 'Wants a decision'); }, icon: '⚑' },
+  limit: { get label() { return tt('Kullanım limiti doldu / devam etti', 'Usage limit hit / resumed'); }, icon: '⏳' },
+  budget: { get label() { return tt('Bütçe uyarısı / aşıldı', 'Budget warning / exceeded'); }, icon: '$' },
 };
 const DEFAULTS = { enabled: true, onlyUnfocused: true, sound: true, speak: false, kinds: { done: true, waiting: true, finished: true, assigned: false, decision: true, limit: true, budget: true } };
 const MAX_HISTORY = 100;
@@ -43,13 +44,13 @@ function describeDone(ws, task, who) {
   const r = task.report || {};
   const ev = r.evidence || [];
   const failed = ev.filter((e) => e && e.ok === false).length;
-  const check = ev.length ? (failed ? `✗ ${failed}/${ev.length} doğrulama başarısız` : `✓ ${ev.length} doğrulama geçti`) : 'doğrulama yok';
+  const check = ev.length ? (failed ? tt(`✗ ${failed}/${ev.length} doğrulama başarısız`, `✗ ${failed}/${ev.length} checks failed`) : tt(`✓ ${ev.length} doğrulama geçti`, `✓ ${ev.length} checks passed`)) : tt('doğrulama yok', 'no checks');
   const files = (r.files || []).length;
   return {
     kind: 'done', warn: failed > 0,
     title: `${ws.name} · ${who}`,
     subtitle: `${task.id} · ${clip(task.title, 70)}`,
-    body: `${clip(r.summary, 160) || 'Özet yok.'}\n${check}${files ? ` · ${files} dosya` : ''}`,
+    body: `${clip(r.summary, 160) || tt('Özet yok.', 'No summary.')}\n${check}${files ? ` · ${files} ${tt('dosya', 'files')}` : ''}`,
     ref: { type: 'task', id: task.id },
   };
 }
@@ -58,8 +59,8 @@ function describeWaiting(ws, worker, task) {
   return {
     kind: 'waiting', warn: true,
     title: `${ws.name} · ${worker.name}`,
-    subtitle: 'Seni bekliyor',
-    body: `${clip(worker.waitingFor, 140) || 'Onay ya da yanıt gerekiyor.'}${task ? `\n${task.id} · ${clip(task.title, 70)}` : ''}`,
+    subtitle: tt('Seni bekliyor', 'Waiting for you'),
+    body: `${clip(worker.waitingFor, 140) || tt('Onay ya da yanıt gerekiyor.', 'Approval or an answer is needed.')}${task ? `\n${task.id} · ${clip(task.title, 70)}` : ''}`,
     ref: { type: 'worker', id: worker.id },
   };
 }
@@ -69,8 +70,8 @@ function describeFinished(ws, worker, task, secs) {
   return {
     kind: 'finished', warn: false,
     title: `${ws.name} · ${worker.name}`,
-    subtitle: 'Çalışmayı bıraktı',
-    body: `${task ? `${task.id} · ${clip(task.title, 70)}\n` : ''}${m ? `${m} dk` : `${Math.round(secs)} sn`} çalıştı, şimdi boşta.`,
+    subtitle: tt('Çalışmayı bıraktı', 'Stopped working'),
+    body: `${task ? `${task.id} · ${clip(task.title, 70)}\n` : ''}${tt(`${m ? `${m} dk` : `${Math.round(secs)} sn`} çalıştı, şimdi boşta.`, `Worked for ${m ? `${m} min` : `${Math.round(secs)} s`}, now idle.`)}`,
     ref: { type: 'worker', id: worker.id },
   };
 }
@@ -79,32 +80,32 @@ function describeDecision(ws, d, who) {
   return {
     kind: 'decision', warn: true,
     title: `${ws.name} · ${who}`,
-    subtitle: `Karar istiyor · ${d.id}`,
-    body: `${clip(d.question, 160)}${d.options.length ? `\nSeçenekler: ${d.options.join(' / ')}` : ''}`,
+    subtitle: `${tt('Karar istiyor', 'Wants a decision')} · ${d.id}`,
+    body: `${clip(d.question, 160)}${d.options.length ? `\n${tt('Seçenekler', 'Options')}: ${d.options.join(' / ')}` : ''}`,
     ref: { type: 'decision', id: d.id },
   };
 }
 
-const clock = (ts) => new Date(ts).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+const clock = (ts) => new Date(ts).toLocaleTimeString(tt('tr-TR', 'en-GB'), { hour: '2-digit', minute: '2-digit' });
 function describeLimit(ws, worker, parked) {
   return {
     kind: 'limit', warn: true,
     title: `${ws.name} · ${worker.name}`,
-    subtitle: 'Kullanım limiti doldu',
-    body: `${clock(parked.until)} civarında kaldığı yerden devam ettirilecek${parked.guessed ? ' (saat bilinmiyor, tahmin)' : ''}.`,
+    subtitle: tt('Kullanım limiti doldu', 'Usage limit reached'),
+    body: tt(`${clock(parked.until)} civarında kaldığı yerden devam ettirilecek${parked.guessed ? ' (saat bilinmiyor, tahmin)' : ''}.`, `Will resume around ${clock(parked.until)}${parked.guessed ? ' (time unknown, a guess)' : ''}.`),
     ref: { type: 'worker', id: worker.id },
   };
 }
 function describeResumed(ws, worker) {
-  return { kind: 'limit', warn: false, title: `${ws.name} · ${worker.name}`, subtitle: 'Limit sıfırlandı', body: 'Kaldığı yerden devam ettirildi.', ref: { type: 'worker', id: worker.id } };
+  return { kind: 'limit', warn: false, title: `${ws.name} · ${worker.name}`, subtitle: tt('Limit sıfırlandı', 'Limit reset'), body: tt('Kaldığı yerden devam ettirildi.', 'Resumed where it left off.'), ref: { type: 'worker', id: worker.id } };
 }
 
 function describeBudget(ws, worker, { spent, budget, stopped }) {
   return {
     kind: 'budget', warn: true,
     title: `${ws.name} · ${worker.name}`,
-    subtitle: stopped ? 'Bütçe doldu, durduruldu' : 'Bütçenin %80\'i harcandı',
-    body: `$${spent.toFixed(2)} / $${budget.toFixed(2)}${stopped ? '. Bütçeyi yükseltip yeniden başlatabilirsin.' : '.'}`,
+    subtitle: stopped ? tt('Bütçe doldu, durduruldu', 'Budget reached, stopped') : tt('Bütçenin %80\'i harcandı', '80% of the budget is spent'),
+    body: `$${spent.toFixed(2)} / $${budget.toFixed(2)}${stopped ? tt('. Bütçeyi yükseltip yeniden başlatabilirsin.', '. Raise the budget and restart to continue.') : '.'}`,
     ref: { type: 'worker', id: worker.id },
   };
 }
@@ -113,7 +114,7 @@ function describeAssigned(ws, task, who, assignee) {
   return {
     kind: 'assigned', warn: false,
     title: `${ws.name} · ${assignee}`,
-    subtitle: `Yeni görev (${who})`,
+    subtitle: `${tt('Yeni görev', 'New task')} (${who})`,
     body: `${task.id} · ${clip(task.title, 100)}`,
     ref: { type: 'task', id: task.id },
   };
