@@ -252,7 +252,7 @@ async function createWindow() {
 
   H('worker-create', (def) => workers.create(need(), def).id);
   H('worker-update', ({ id, patch }) => !!workers.update(need(), id, patch));
-  H('worker-remove', ({ id }) => { workers.remove(need(), id); return true; });
+  H('worker-remove', ({ id }) => { if (!workers.remove(need(), id)) throw new Error('Çalışan bulunamadı (zaten silinmiş olabilir).'); return true; });
   H('worker-start', ({ id, cols, rows }) => workers.start(need(), id, { cols, rows }));
   H('worker-stop', ({ id }) => workers.stop(need(), id));
   H('chat-send', ({ text }) => { try { return { to: chat.ownerSend(need(), text) }; } catch (e) { return { error: e.message }; } });

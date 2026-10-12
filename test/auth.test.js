@@ -60,6 +60,26 @@ test('reset with a valid token sets the password and works once', async () => {
   assert.deepStrictEqual(await s.auth.reset(token, 'baska'), { status: 400, body: { code: 'INVALID' } });
 });
 
+test('reset with an unknown or used token is INVALID even with a weak password (no rule leak)', async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.auth.reset('bogus-token', 'x'), { status: 400, body: { code: 'INVALID' } });
+  await s.auth.forgot('a@b.co');
+  const token = s.tokenFromMail();
+  await s.auth.reset(token, 'yeniSifre1');
+  assert.deepStrictEqual(await s.auth.reset(token, 'x'), { status: 400, body: { code: 'INVALID' } });
+});
+
+test('reset with a valid token and a weak password is WEAK_PASSWORD and keeps the link usable', async () => {
+  const s = setup();
+  await s.auth.forgot('a@b.co');
+  const token = s.tokenFromMail();
+  const weak = { status: 400, body: { code: 'WEAK_PASSWORD', min: 8, max: 128 } };
+  assert.deepStrictEqual(await s.auth.reset(token, 'kisa'), weak);
+  assert.deepStrictEqual(await s.auth.reset(token, 'a'.repeat(129)), weak);
+  assert.equal(s.store.passwords.u1, undefined);
+  assert.deepStrictEqual(await s.auth.reset(token, 'yeniSifre1'), { status: 200, body: { ok: true } });
+});
+
 test('reset after 15 minutes returns EXPIRED', async () => {
   const s = setup();
   await s.auth.forgot('a@b.co');

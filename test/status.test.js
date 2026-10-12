@@ -49,3 +49,49 @@ test('terminal layout: pruneTree drops dead panes, collapses splits, clamps rati
   assert.strictEqual(parseSaved('{oops'), null);
   assert.deepStrictEqual(parseSaved('{"tree":null}'), { tree: null });
 });
+
+test('chat send: box empties at once, double send ignored, text returns on failure', async () => {
+  const { sendDraft } = await import('../src/renderer/views/chat-send.mjs');
+  const mk = (send) => { const box = { v: '  merhaba ' }; const toasts = []; return { box, toasts, ctx: { get: () => box.v, set: (v) => { box.v = v; }, send, toast: (m) => toasts.push(m) } }; };
+  // slow send: box already empty while pending, second Enter is ignored
+  let release; const sent = [];
+  const slow = mk((t) => new Promise((r) => { sent.push(t); release = r; }));
+  const p1 = sendDraft(slow.ctx);
+  assert.strictEqual(slow.box.v, '');
+  slow.box.v = 'ikinci';
+  assert.strictEqual(await sendDraft(slow.ctx), false);
+  assert.deepStrictEqual(sent, ['merhaba']);
+  release({}); assert.strictEqual(await p1, true);
+  assert.strictEqual(slow.box.v, 'ikinci');
+  // error result and thrown error both restore the text and toast
+  const bad = mk(async () => ({ error: 'ağ yok' }));
+  assert.strictEqual(await sendDraft(bad.ctx), false);
+  assert.strictEqual(bad.box.v, 'merhaba'); assert.deepStrictEqual(bad.toasts, ['ağ yok']);
+  const boom = mk(async () => { throw new Error('düştü'); });
+  await sendDraft(boom.ctx); assert.strictEqual(boom.box.v, 'merhaba'); assert.deepStrictEqual(boom.toasts, ['düştü']);
+  // owner typed something new meanwhile: don't overwrite it
+  const typed = mk(async () => ({ error: 'x' })); typed.ctx.send = async () => { typed.box.v = 'yeni'; return { error: 'x' }; };
+  await sendDraft(typed.ctx); assert.strictEqual(typed.box.v, 'yeni');
+  assert.strictEqual(await sendDraft(mk(async () => ({})).ctx = { get: () => '   ', set() {}, send() {}, toast() {} }), false);
+});
+
+test('chat pending: recipients, states, clearing on reply, late timeout, optimistic', async () => {
+  const { pendingList, recipientsOf, lateIn, LATE_MS } = await import('../src/renderer/views/chat-pending.mjs');
+  const ws = [{ id: 'n', name: 'Nova', color: 'N', status: 'working' }, { id: 'a', name: 'Ada', color: 'A', status: 'offline' }, { id: 'r', name: 'Rio', color: 'R', status: 'waiting' }];
+  const kinds = (o) => pendingList({ workers: ws, leadId: 'n', now: 1000, ...o }).map((p) => `${p.name}:${p.kind}`);
+  assert.deepStrictEqual(recipientsOf('selam @ada ve @RIO', ws, 'n'), ['a', 'r']);
+  assert.deepStrictEqual(recipientsOf('selam', ws, 'n'), ['n']);
+  assert.deepStrictEqual(kinds({ msgs: [{ from: 'user', to: 'team', ts: 500 }] }), ['Nova:thinking']);
+  assert.deepStrictEqual(kinds({ msgs: [{ from: 'user', to: 'a,r', ts: 500 }] }), ['Ada:asleep', 'Rio:approval']);
+  // a reply after the message clears only that person; an older reply does not
+  const msgs = [{ from: 'a', to: 'user', ts: 100 }, { from: 'user', to: 'a,r', ts: 500 }, { from: 'a', to: 'user', ts: 600 }];
+  assert.deepStrictEqual(kinds({ msgs }), ['Rio:approval']);
+  assert.deepStrictEqual(kinds({ msgs: msgs.slice(0, 2) }), ['Ada:asleep', 'Rio:approval']);
+  // timeout
+  assert.deepStrictEqual(pendingList({ workers: ws, leadId: 'n', msgs: [{ from: 'user', to: 'team', ts: 0 }], now: LATE_MS + 1 }).map((p) => p.kind), ['late']);
+  assert.ok(lateIn([{ from: 'user', ts: 0 }], null, 1000) > 0); assert.strictEqual(lateIn([{ from: 'user', ts: 0 }], null, LATE_MS + 5), null);
+  // optimistic shows before the real message arrives, then yields to it
+  assert.deepStrictEqual(kinds({ msgs: [], optimistic: { ts: 900, text: '@ada hey' } }), ['Ada:asleep']);
+  assert.deepStrictEqual(kinds({ msgs: [{ from: 'user', to: 'team', ts: 905 }], optimistic: { ts: 900, text: '@ada hey' } }), ['Nova:thinking']);
+  assert.deepStrictEqual(kinds({ msgs: [], optimistic: null }), []);
+});

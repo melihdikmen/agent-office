@@ -81,7 +81,7 @@ const watch = new WatchView($('#ltab-code'), api);
 const browser = new BrowserView($('#rtab-browser'), { api, toast, workers: () => S.ws?.workers || [] });
 const decisionsView = new DecisionsView($('#rtab-decisions'), api, { toast, onCount: (n) => { $('#decisionCount').textContent = n ? String(n) : ''; $('#decisionCount').classList.toggle('hot', n > 0); } });
 const skillsView = new SkillsView($('#rtab-skills'), api, { toast, openDialog: (...a) => openDialog(...a), closeDialog: () => dlg.close(), dlgBody: () => dlgBody });
-const chatView = new ChatView($('#rtab-chat'), api, { toast, onUnread: (n) => { $('#chatCount').textContent = n ? String(n) : ''; } });
+const chatView = new ChatView($('#rtab-chat'), api, { toast, onUnread: (n) => { $('#chatCount').textContent = n ? String(n) : ''; }, onTerminal: (id) => openWorkerTerminal(id) });
 const review = new ReviewView($('#rtab-review'), api, { toast });
 const editor = new EditorPane($('#rtab-editor'), api, { toast, workers: () => S.ws?.workers || [] });
 const designView = new DesignView($('#rtab-design'), api, { toast, workers: () => S.ws?.workers || [] });
@@ -131,7 +131,7 @@ function apply(st) {
   panes.setKey(ws?.id); panes2.setKey(ws?.id ? `${ws.id}.L` : null);
   panes.setMeta(st.terminals, workers); panes2.setMeta(st.terminals, workers);
   board.set(ws?.tasks || [], workers);
-  chatView.set(ws?.chat || [], workers);
+  chatView.set(ws?.chat || [], workers, ws?.lead);
   designView.set(ws?.designs || []);
   editor.setWorkspace(ws?.id || null);
   reports.set(ws?.reports || [], workers);
@@ -399,8 +399,8 @@ function workerDialog(w = null) {
     if (act === 'start') { await startWorker(w.id); dlg.close(); }
     if (act === 'stop') { await api.workerStop({ id: w.id }); dlg.close(); }
     if (act === 'look') { await api.workerUpdate({ id: w.id, patch: { reroll: true } }); toast(tt('Yeni görünüm', 'New look')); }
-    if (act === 'pr') { r = await api.prOpen({ id: w.id }); if (r?.url) { toast(`PR açıldı: ${r.url}`); api.openUrl({ url: r.url }); } }
-    if (act === 'remove') { if (confirm(`${w.name} işten çıkarılsın mı? Terminali kapanır, hafıza dosyası kalır.`)) { await api.workerRemove({ id: w.id }); select(null); dlg.close(); } }
+    if (act === 'pr') { const r = await api.prOpen({ id: w.id }); if (r?.url) { toast(`PR açıldı: ${r.url}`); api.openUrl({ url: r.url }); } }
+    if (act === 'remove') { if (confirm(`${w.name} işten çıkarılsın mı? Terminali kapanır, hafıza dosyası kalır.`)) { try { const res = await api.workerRemove({ id: w.id }); if (res?.error) { toast(res.error, 'err'); return; } } catch (err) { toast(`Silinemedi: ${err.message}`, 'err'); return; } select(null); dlg.close(); toast(`${w.name} işten çıkarıldı`); } }
     if (act === 'memory') { const text = await api.workerMemory({ id: w.id }); openDialog(`<form><h3>${esc(w.name)} · hafıza</h3><pre class="memo">${esc(text || '(boş)')}</pre><div class="dlg-actions"><button value="cancel" class="btn" formnovalidate>Kapat</button></div></form>`); }
   };
 }

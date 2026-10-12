@@ -162,14 +162,16 @@ class Workers extends EventEmitter {
   }
 
   remove(ws, wid) {
-    this.stop(ws, wid);
     const gone = ws.workers.find((x) => x.id === wid);
-    if (gone?.worktreePath) { try { worktree.remove(ws, gone); } catch { /* branch stays */ } }
+    if (!gone) return false;
+    try { this.stop(ws, wid); } catch { /* a terminal that will not die must not keep the worker on the payroll */ }
+    if (gone.worktreePath) { try { worktree.remove(ws, gone); } catch { /* branch stays */ } }
     ws.workers = ws.workers.filter((x) => x.id !== wid);
     if (ws.lead === wid) ws.lead = ws.workers[0]?.id || null;
     for (const t of ws.tasks) if (t.assignee === wid) t.assignee = null;
     this.store.save();
     this.emit('change', ws.id);
+    return true;
   }
 
   termId(wid) { return `w:${wid}`; }
