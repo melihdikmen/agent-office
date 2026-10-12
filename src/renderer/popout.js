@@ -12,9 +12,9 @@ const panes = new Panes(document.getElementById('panes'), api, { onFocus: () => 
 let opened = false;
 const apply = (st) => {
   const workers = st.active?.workers || [];
-  panes.setMeta(st.terminals || [], workers);
+  panes.setMeta(st.terminals || [], workers, st.workspaces?.length);
   const t = (st.terminals || []).find((x) => x.id === id);
-  if (t) document.title = t.title || 'Terminal';
+  if (t) document.title = t.project?.name ? `${t.title || 'Terminal'} · ${t.project.name}` : t.title || 'Terminal';
   if (!opened && t) { opened = true; panes.open(id); }
   if (opened && !t) window.close();                       // the terminal is gone
 };

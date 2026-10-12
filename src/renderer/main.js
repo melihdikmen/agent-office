@@ -129,7 +129,7 @@ function apply(st) {
   $('#tabInfo').classList.toggle('has', !!st.app?.update?.newer);
   $('#railDot').className = `rail-dot ${workers.some((w) => w.status === 'waiting') ? 'warn' : workers.some((w) => w.status === 'working') ? 'busy' : ''}`;
   panes.setKey(ws?.id); panes2.setKey(ws?.id ? `${ws.id}.L` : null);
-  panes.setMeta(st.terminals, workers); panes2.setMeta(st.terminals, workers);
+  panes.setMeta(st.terminals, workers, st.workspaces?.length); panes2.setMeta(st.terminals, workers, st.workspaces?.length);
   board.set(ws?.tasks || [], workers);
   chatView.set(ws?.chat || [], workers, ws?.lead);
   designView.set(ws?.designs || []);

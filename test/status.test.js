@@ -124,3 +124,21 @@ test('chat: terminal-typed owner messages (kind:"term") get the badge, filter by
   const chat = { from: 'user', to: 'team', ts: 500 };
   assert.deepStrictEqual(pendingList({ msgs: [chat, term], workers: ws, leadId: 'a', now: 2000 }).map((p) => p.kind), ['thinking']);
 });
+
+test('project chip: name shortening, stable colors, agent vs shell label', async () => {
+  const { shortName, projectColor, chipModel, MAX_NAME } = await import('../src/renderer/views/project-chip.mjs');
+  assert.strictEqual(shortName('Product HQ'), 'Product HQ');
+  const long = shortName('Çok uzun bir ofis adı burada'); assert.ok(long.length <= MAX_NAME && long.endsWith('…'));
+  assert.strictEqual(shortName(null), '');
+  assert.strictEqual(projectColor('Product HQ'), projectColor('Product HQ'));
+  assert.match(projectColor('x'), /^#[0-9a-f]{6}$/);
+  assert.notStrictEqual(new Set(['A', 'B', 'C', 'Product HQ', 'Docs', 'Web'].map(projectColor)).size, 1);
+  const p = { name: 'Product HQ', dir: '/Users/me/work/product' };
+  const a = chipModel(p, { multi: true });
+  assert.deepStrictEqual([a.icon, a.label, a.dim, a.path], ['📁', 'Product HQ', false, '/Users/me/work/product']);
+  const sh = chipModel(p, { shell: true });
+  assert.deepStrictEqual([sh.icon, sh.label, sh.dim], ['⌂', 'product', true]);
+  assert.strictEqual(chipModel({ name: 'product', dir: '/x/product' }).path, '');   // folder = office name: no extra path
+  assert.strictEqual(chipModel(null), null);
+  assert.strictEqual(chipModel({ name: 'A', dir: '/a', color: '#123456' }).color, '#123456');
+});

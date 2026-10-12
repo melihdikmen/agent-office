@@ -127,6 +127,11 @@ async function createWindow() {
 
   // ---- state pushed to the renderer -----------------------------------------
   const activeWs = () => store.active;
+  // Which office a terminal belongs to: its worker's office, else the office whose folder it runs in.
+  function projectOf(t) {
+    const w = store.workspaces.find((o) => (t.workerId && o.workers.some((x) => x.id === t.workerId)) || (!t.workerId && t.cwd && o.dir === t.cwd));
+    return w ? { id: w.id, name: w.name, dir: w.dir } : null;
+  }
   function state() {
     const ws = activeWs();
     return {
@@ -136,7 +141,7 @@ async function createWindow() {
         workers: ws.workers.map((w) => workers.view(ws, w)),
         tasks: ws.tasks, reports: ws.reports.slice(0, 100), designs: (ws.designs || []).slice(0, 60), chat: (ws.chat || []).slice(-150),
       } : null,
-      terminals: terminals.list(),
+      terminals: terminals.list().map((t) => ({ ...t, project: projectOf(t) })),
       guests,
       handsOff: !!store.data.handsOff,
       notify: notifier.view(),

@@ -1,6 +1,19 @@
 'use strict';
 // What changed per release (Turkish + English); shown after an update and from the ⓘ button.
 module.exports = [
+  { version: '0.11.2', date: '2026-10-12',
+    items: [
+      'Takım sohbeti artık terminallerdeki tüm ajan mesajlarını içerir; ajana göre filtre, uzun mesajı açıp kapatma ve "terminal" rozeti var',
+      'Mesaj gönderince kutu hemen boşalır, cevap verecek ajan için "düşünüyor…" göstergesi çıkar',
+      'Terminal başlıklarında ajanın ait olduğu proje (ofis) adı yazar',
+      'Çalışan silme hataları artık ekranda görünür; şifre sıfırlamada token kontrolü şifre kontrolünden önce yapılır',
+    ],
+    en: [
+      'Team chat now contains every agent message from the terminals; filter by agent, fold long messages, and a "terminal" badge',
+      'The input clears as soon as you send, and a "thinking…" indicator shows which agent will answer',
+      'Terminal headers show the project (office) the agent belongs to',
+      'Errors when removing a worker are now shown; password reset checks the token before the password',
+    ] },
   { version: '0.11.1', date: '2026-10-11',
     items: [
       'İngilizce arayüz tamamlandı: ajan durumları, paneller, bildirimler, menü çubuğu, sistem kontrolü ve diyaloglar artık İngilizce modda İngilizce',

@@ -6,6 +6,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { pruneTree, parseSaved } from './layout-tree.mjs';
+import { chipModel } from './project-chip.mjs';
+import { tt } from '../i18n.js';
 
 import { termTheme } from './themes.js';
 const SIZES = { S: 11, M: 13, L: 15 };
@@ -98,8 +100,9 @@ export class Panes {
     this.save(); this.render();
   }
 
-  setMeta(list, workers) {
+  setMeta(list, workers, offices = 0) {
     this.meta = new Map(list.map((t) => [t.id, t]));
+    this.multi = Math.max(offices, new Set(list.map((t) => t.project?.id).filter(Boolean)).size) > 1;
     this.workersById = new Map(workers.map((w) => [w.id, w]));
     let changed = false;
     for (const id of [...this.terms.keys()]) if (!this.meta.has(id)) { this.detach(id); changed = true; }
@@ -299,7 +302,9 @@ export class Panes {
       const n = this.leaves(g.tree).length;
       const b = document.createElement('button');
       b.className = `pg${i === this.active ? ' on' : ''}`;
-      b.innerHTML = `<span>${esc(g.name)}</span><i>${n}</i>${this.groups.length > 1 ? '<u data-x title="Grubu kapat (terminaller yanındaki gruba taşınır)">✕</u>' : ''}`;
+      const projs = new Set(this.leaves(g.tree).map((l) => this.meta.get(l)?.project?.name).filter(Boolean));
+      const gm = projs.size === 1 ? this.meta.get(this.leaves(g.tree).find((l) => this.meta.get(l)?.project)) : null;
+      b.innerHTML = `<span>${esc(g.name)}</span>${gm ? this.projectChip(gm) : ''}<i>${n}</i>${this.groups.length > 1 ? '<u data-x title="Grubu kapat (terminaller yanındaki gruba taşınır)">✕</u>' : ''}`;
       b.title = 'Tıkla: aç · çift tıkla: yeniden adlandır · terminal başlığını buraya sürükle: gruba taşı';
       b.onclick = (e) => { if (e.target.closest('[data-x]')) this.closeGroup(i); else this.setActive(i); };
       b.ondblclick = () => this.renameGroup(i);
@@ -436,13 +441,21 @@ export class Panes {
     if (snap?.id) { this.meta.set(snap.id, snap); await this.open(snap.id, { dir }); }
   }
 
+  // Project chip for a terminal header or group tab: office name (agents) or folder (shells).
+  projectChip(m) {
+    const c = chipModel(m.project, { shell: !m.workerId, multi: this.multi });
+    if (!c) return '';
+    const tip = `${tt('Proje', 'Project')}: ${c.full}${c.path ? ` — ${c.path}` : ''}`;
+    return `<span class="proj${c.dim ? ' dim' : ''}" title="${esc(tip)}"><i style="background:${c.color}"></i><span class="pt">${c.icon} ${esc(c.label)}</span></span>`;
+  }
+
   headerHtml(id) {
     const m = this.meta.get(id) || {};
     const w = m.workerId ? this.workersById.get(m.workerId) : null;
     const dot = m.exited != null ? '#6b625b' : w ? ({ working: '#6ea8ff', waiting: '#f2c94c', idle: '#7ad7a0' }[w.status] || '#7ad7a0') : '#7ad7a0';
     const other = w && w.engine && w.engine !== 'claude';
     const chips = w ? `<span class="chip">${esc(other ? `${w.engine}${w.model ? ` · ${w.model}` : ''}` : w.model)}</span>${w.branch ? `<span class="chip">⎇ ${esc(w.branch)}</span>` : ''}${other ? '' : `<span class="chip usage" title="Bu oturumun toplam maliyeti ve token kullanımı">$${(w.cost || 0).toFixed(2)}${w.budget > 0 ? ` / $${w.budget}` : ''} · ${Math.round((w.tokens || 0) / 1000)}k tok</span>`}` : '';
-    return `<i class="dot" style="background:${dot}"></i><b>${esc(m.title || id)}</b>${w ? `<span class="muted">${esc(w.role)}</span>` : ''}<span class="spacer"></span>${chips}
+    return `<i class="dot" style="background:${dot}"></i><b>${esc(m.title || id)}</b>${this.projectChip(m)}${w ? `<span class="muted">${esc(w.role)}</span>` : ''}<span class="spacer"></span>${chips}
       <button data-act="row" title="Yana böl">◫</button><button data-act="col" title="Alta böl">⬓</button><button data-act="clear" title="Temizle">⌫</button>${this.onMic ? '<button data-act="mic" title="Konuşarak yaz (⌘⇧M)">🎤</button>' : ''}<button data-act="max" title="Büyüt/küçült">⤢</button><button data-act="full" title="Tüm pencereyi kapla (⌘⇧↵ ya da başlığa çift tıkla)">⛶</button>${this.onMove ? '<button data-act="move" title="Terminali diğer alana taşı (ofis alanı ⇄ sağ panel)">⇄</button>' : ''}<button data-act="close" title="Kapat">✕</button>`;
   }
 
