@@ -356,13 +356,15 @@ class Workers extends EventEmitter {
     let status = 'offline';
     if (running) status = reg?.status === 'waiting' ? 'waiting' : reg?.status === 'busy' ? 'working' : reg?.status === 'idle' ? 'idle' : 'starting';
     const lastAnswer = [...(s?.recent || [])].reverse().find((r) => r.role === 'assistant')?.text || null;
-    return {
+    const v = {
       ...w, parkedUntil: w.parked?.until || null, token: undefined, running, status, waitingFor: reg?.waitingFor || null, statusSince: reg?.statusUpdatedAt || null,
       activity: s?.activity || null, lastAnswer, lastActivity: s?.lastActivity || null, ctx: s?.ctx || 0,
       branch: s?.branch || null, recent: s?.recent || [], sends: s?.sends || [],
       cost: cost?.totalCostUSD || 0, tokens: cost ? Object.values(cost.modelUsage || {}).reduce((a, m) => a + (m.inputTokens || 0) + (m.outputTokens || 0) + (m.cacheReadInputTokens || 0) + (m.cacheCreationInputTokens || 0), 0) : 0,
       lead: ws.lead === w.id, terminalId: this.termId(w.id), decisionOpen: (ws.decisions || []).filter((d) => d.by === w.id && d.status === 'open').length,
     };
+    Object.defineProperty(v, 'turns', { value: s?.turns || [], enumerable: false });   // for the chat mirror; kept out of the UI state push
+    return v;
   }
 }
 

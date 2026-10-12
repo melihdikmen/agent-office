@@ -50,3 +50,18 @@ test('summarizes tool calls for labels', () => {
   assert.strictEqual(summarizeToolUse('WebSearch', { query: 'platformer keywords' }), 'WebSearch "platformer keywords"');
   assert.strictEqual(summarizeToolUse('Mystery'), 'Mystery');
 });
+
+test('summarizeSession keeps a deeper, longer turns window for the chat mirror', () => {
+  const fs = require('fs'), os = require('os'), path = require('path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'turns-'));
+  const f = path.join(dir, 's1.jsonl');
+  const lines = [{ type: 'user', timestamp: '2026-10-12T10:00:00.000Z', message: { content: 'selam' } }];
+  for (let i = 0; i < 40; i++) lines.push({ type: 'assistant', timestamp: `2026-10-12T10:01:${String(i).padStart(2, '0')}.000Z`, message: { model: 'm', content: [{ type: 'text', text: i === 39 ? 'u'.repeat(5000) : `cevap ${i}` }] } });
+  lines.push({ type: 'assistant', timestamp: '2026-10-12T10:02:00.000Z', message: { model: 'm', content: [{ type: 'tool_use', name: 'Bash', input: {} }] } });
+  fs.writeFileSync(f, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  const s = require('../src/main/scanner').summarizeSession(f);
+  assert.equal(s.turns.length, 30);
+  assert.equal(s.turns.at(-1).text.length, 4000);
+  assert.ok(s.turns.every((t) => t.role === 'assistant' || t.role === 'user'), 'tool calls are not turns');
+  assert.equal(s.recent.length <= 8, true);
+});

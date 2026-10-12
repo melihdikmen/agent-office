@@ -846,3 +846,17 @@ dialog { font-family: var(--ui); }
 .ch-dots::after { content: '…'; animation: ch-dots 1.2s steps(1) infinite; }
 @keyframes ch-dots { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
 @media (prefers-reduced-motion: reduce) { .ch-dots::after { animation: none; content: '…'; } }
+
+/* chat: filter chips, grouping, folding, terminal badge, new-message button */
+.ch-wrap { position: relative; }
+.ch-chipg { display: inline-flex; }
+.ch-chipg .ch-chip:first-child { border-radius: 999px 0 0 999px; }
+.ch-chipg .ch-mention { border-radius: 0 999px 999px 0; border-left: 0; padding: 3px 7px; color: var(--muted); }
+.ch-chip.on, .ch-chipg.on .ch-chip:first-child { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+.ch-m.cont { margin-top: -6px; }
+.ch-m.cont .ch-t { border-top-left-radius: 14px; }
+.ch-m.via .ch-t { opacity: .7; }
+.ch-via { font-size: 9.5px; font-weight: 500; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.ch-t.clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.ch-more { background: none; border: 0; color: var(--accent); cursor: pointer; font-size: 11.5px; padding: 3px 2px 0; }
+.ch-newmsg { position: absolute; right: 18px; bottom: 96px; z-index: 2; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 999px; padding: 5px 12px; font-size: 11.5px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.4); }

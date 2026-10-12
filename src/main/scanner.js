@@ -241,7 +241,12 @@ function summarizeSession(file) {
   const branch = [...tail].reverse().find((e) => e.gitBranch)?.gitBranch;
   const firstUser = head.find(isHuman);
   const recent = [];
+  const turns = [];   // longer text, deeper window: what the team chat mirrors
   for (const e of tail) {
+    if (e.isSidechain) { /* sub-agent chatter stays out of the chat */ }
+    else if (isHuman(e)) turns.push({ role: 'user', text: textOf(e.message.content).trim().slice(0, 4000), ts: e.timestamp });
+    else if (e.type === 'assistant' && textOf(e.message?.content).trim()) turns.push({ role: 'assistant', text: textOf(e.message.content).trim().slice(0, 4000), ts: e.timestamp });
+
     if (isHuman(e)) recent.push({ role: 'user', text: textOf(e.message.content).slice(0, 600), ts: e.timestamp });
     else if (e.type === 'assistant') {
       const t = textOf(e.message?.content);
@@ -257,6 +262,7 @@ function summarizeSession(file) {
     title: title || (firstUser ? textOf(firstUser.message.content).slice(0, 80) : null),
     cwd: [...tail].reverse().find((e) => e.cwd)?.cwd || null,
     recent: recent.slice(-8),
+    turns: turns.slice(-30),
     lastActivity: stat.mtimeMs,
     lastRole: last?.type,
     lastPrompt: lastPrompt ? lastPrompt.slice(0, 400) : [...recent].reverse().find((r) => r.role === 'user')?.text || null,

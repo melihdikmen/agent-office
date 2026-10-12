@@ -95,3 +95,32 @@ test('chat pending: recipients, states, clearing on reply, late timeout, optimis
   assert.deepStrictEqual(kinds({ msgs: [{ from: 'user', to: 'team', ts: 905 }], optimistic: { ts: 900, text: '@ada hey' } }), ['Nova:thinking']);
   assert.deepStrictEqual(kinds({ msgs: [], optimistic: null }), []);
 });
+
+test('chat list: agent filter, header grouping, folding helpers', async () => {
+  const { filterMsgs, headFlags, isLong, continuesInTerminal, viaTerminal } = await import('../src/renderer/views/chat-list.mjs');
+  const msgs = [
+    { from: 'user', to: 'a,b', ts: 0 }, { from: 'a', to: 'user', ts: 1000 }, { from: 'a', to: 'user', ts: 2000 },
+    { from: 'b', to: 'user', ts: 3000 }, { from: 'a', to: 'user', ts: 3000 + 6 * 60000 }, { from: 'a', to: 'user', ts: 3000 + 6 * 60000 + 10 }, { from: 'a', to: 'b', kind: 'dm', ts: 3000 + 6 * 60000 + 20 },
+  ];
+  assert.strictEqual(filterMsgs(msgs, null), msgs);
+  assert.deepStrictEqual(filterMsgs(msgs, 'b').map((m) => m.ts), [0, 3000, 3000 + 6 * 60000 + 20]);
+  assert.deepStrictEqual(headFlags(msgs), [true, true, false, true, true, false, true]);
+  assert.deepStrictEqual(headFlags([]), []);
+  assert.ok(isLong('x'.repeat(601)) && !isLong('x'.repeat(600)) && !isLong(undefined));
+  assert.ok(continuesInTerminal('uzun cevap … (devamı terminalde)') && !continuesInTerminal('devamı terminalde değil'));
+  assert.ok(viaTerminal({ via: 'terminal' }) && !viaTerminal({}) && !viaTerminal(null));
+});
+
+test('chat: terminal-typed owner messages (kind:"term") get the badge, filter by agent, never trigger "thinking"', async () => {
+  const { viaTerminal, filterMsgs } = await import('../src/renderer/views/chat-list.mjs');
+  const { pendingList, lateIn } = await import('../src/renderer/views/chat-pending.mjs');
+  const term = { from: 'user', to: 'a', kind: 'term', ts: 1000, text: 'terminalden' };
+  assert.ok(viaTerminal(term) && viaTerminal({ via: 'terminal' }) && !viaTerminal({ from: 'user', to: 'team' }));
+  assert.deepStrictEqual(filterMsgs([term, { from: 'user', to: 'b', ts: 1 }], 'a'), [term]);
+  const ws = [{ id: 'a', name: 'Ada', color: 'A', status: 'working' }];
+  assert.deepStrictEqual(pendingList({ msgs: [term], workers: ws, leadId: 'a', now: 2000 }), []);
+  assert.strictEqual(lateIn([term], null, 2000), null);
+  // a chat message before it still counts; the later terminal message does not replace it
+  const chat = { from: 'user', to: 'team', ts: 500 };
+  assert.deepStrictEqual(pendingList({ msgs: [chat, term], workers: ws, leadId: 'a', now: 2000 }).map((p) => p.kind), ['thinking']);
+});
